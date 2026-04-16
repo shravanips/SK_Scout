@@ -35,3 +35,30 @@ After editing files
 git add .
 git commit -m "Added new scraping files"
 git push
+
+
+
+""""""
+TOPIC_BUCKETS = {
+    "hollywood": [
+        "hollywood", "movie", "film", "actor", "actress", "celebrity",
+        "oscar", "netflix", "disney", "warner bros", "paramount"
+    ],
+    "cybersecurity": [
+        "cyberattack", "breach", "hack", "leak", "phishing",
+        "ransomware", "malware", "deepfake", "scam"
+    ],
+    "politics": [
+        "election", "president", "government", "senate", "policy"
+    ],
+    "technology": [
+        "AI", "OpenAI", "Google", "Microsoft", "startup", "chip", "robot"
+    ],
+    "finance": [
+        "stock market", "inflation", "recession", "fed", "bitcoin"
+    ],
+    "breaking_news": [
+        "breaking news", "shooting", "earthquake", "wildfire", "flood"
+    ]
+}
+"""
