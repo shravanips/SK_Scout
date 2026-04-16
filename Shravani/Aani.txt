@@ -1,1 +1,37 @@
 Working file to check if my github is connected 
+
+Creating a branch
+
+git checkout -b shravani
+
+Push it:
+git push -u origin shravani
+
+Daily workflow:
+When you start working:
+git pull origin main
+
+After making changes:
+git add .
+git commit -m "Added scraping module"
+git push
+
+Merging into main:
+1. Push your branch
+2. Go to GitHub
+3. Create Pull Request (PR)
+4. Review → Merge
+
+
+First get latest changes
+git checkout main
+git pull origin main
+
+Switch to your branch
+git checkout shravani
+git merge main
+
+After editing files
+git add .
+git commit -m "Added new scraping files"
+git push
