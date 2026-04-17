@@ -1,0 +1,93 @@
+api:
+  bearer_token: "AAAAAAAAAAAAAAAAAAAAACUx9AEAAAAAuQjikkPAWS23e5zt0%2B6ydCRemTA%3DIQRgQOXMSozxcuV9Kil3GNtaIG5Rr8YQY0c4mARgRm3GJESrGW"
+  api_key: "DTFPVQsjzPmfG0TQMISnYzUC0"
+  api_secret: "V6EPopenaYeRcPsXOuzRZXxKBNzNQ1cir0JPp9VifeKcZEdl8W"
+  access_token: "1914524715479126016-jyzfpqh99WiTPtaLkCTd6Xqxnk42TN"
+  access_token_secret: "7Fv7XFJemx3U6gns8whWGkepUGwawLi3KdP53ybsBuopG"
+
+collection:
+  start_date: "2020-01-01"
+  end_date: null  # null = today
+  max_posts_per_user: 3200  # Twitter API max for timeline
+  request_delay_seconds: 1.5
+  retry_attempts: 3
+  retry_delay_seconds: 5
+
+# Hollywood stars target list — expand as needed
+targets:
+  actors:
+    - username: "TheRock"
+      name: "Dwayne Johnson"
+    - username: "priyankachopra"
+      name: "Priyanka Chopra"
+    - username: "justinbieber"
+      name: "Justin Bieber"
+    - username: "selenagomez"
+      name: "Selena Gomez"
+    - username: "taylorswift13"
+      name: "Taylor Swift"
+    - username: "Cristiano"
+      name: "Cristiano Ronaldo"
+    - username: "rihanna"
+      name: "Rihanna"
+    - username: "ladygaga"
+      name: "Lady Gaga"
+    - username: "BritneySpears"
+      name: "Britney Spears"
+    - username: "MileyCyrus"
+      name: "Miley Cyrus"
+    - username: "ArianaGrande"
+      name: "Ariana Grande"
+    - username: "BeyonceSt"
+      name: "Beyonce"
+    - username: "Drake"
+      name: "Drake"
+    - username: "elonmusk"
+      name: "Elon Musk"
+    - username: "KimKardashian"
+      name: "Kim Kardashian"
+    - username: "KylieJenner"
+      name: "Kylie Jenner"
+    - username: "KendallJenner"
+      name: "Kendall Jenner"
+    - username: "khloekardashian"
+      name: "Khloe Kardashian"
+    - username: "kourtneykardash"
+      name: "Kourtney Kardashian"
+    - username: "nickiminaj"
+      name: "Nicki Minaj"
+    - username: "cardi b"
+      name: "Cardi B"
+    - username: "justintimberlake"
+      name: "Justin Timberlake"
+    - username: "Adele"
+      name: "Adele"
+    - username: "DemiLovato"
+      name: "Demi Lovato"
+    - username: "Pink"
+      name: "Pink"
+
+storage:
+  db_path: "data/x_pipeline.db"
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  trending_data_dir: "data/trending"
+  reports_dir: "reports"
+  logs_dir: "logs"
+
+bot_detection:
+  # Thresholds for bot scoring
+  min_engagement_rate: 0.0001       # below this = suspicious
+  max_engagement_rate: 0.80         # above this = bot-inflated
+  follower_following_ratio_max: 0.01 # low ratio = likely bot follower
+  account_age_days_min: 90          # younger = suspicious
+  default_profile_image_penalty: 0.3
+  no_bio_penalty: 0.2
+  suspicious_comment_similarity_threshold: 0.85  # cosine sim for duplicate comments
+  min_posts_for_analysis: 10
+
+trending:
+  woeid_global: 1         # Global trending WOEID
+  woeid_us: 23424977      # United States
+  woeid_uk: 23424975      # United Kingdom
+  collection_frequency_hours: 1
