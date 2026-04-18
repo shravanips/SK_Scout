@@ -1,0 +1,6 @@
+bot_category,n_bots,total_events,median_repos,wide_footprint_pct
+ci_cd,1,561,529.0,1.0
+code_quality,2,3,1.0,0.0
+dependency,9,144,2.0,0.2222222222222222
+docs,1,1,1.0,0.0
+other,64,152,1.0,0.03125
