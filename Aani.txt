@@ -81,4 +81,40 @@ SK_SCOUT/Shravani/
 ├── requirements.txt
 └── notebooks/
     └── exploration.ipynb  ← interactive version, cell by cell
-    
+
+April 18 structure:   
+SK_SCOUT/Shravani/
+├── analytics.py                - there
+├── ingest.py                   - there
+├── run_pipeline.py             - there
+├── requirements.txt            - there
+├── notebooks/                   - there
+│   └── exploration.ipynb
+├── data/                       - there
+│   ├── raw/
+│   ├── processed/
+│   └── reports/
+├── X_backup/                    - there
+└── .gitignore                 - there
+└── Aani.txt                - there (my folder strucutre and my notes)
+
+
+python run_pipeline.py --start "2026-04-16 00" --end "2026-04-16 23"
+python run_pipeline.py --start "2026-04-14 00" --end "2026-04-16 23"
+python run_pipeline.py --start "2026-04-10 00" --end "2026-04-16 23"
+
+
+python run_pipeline.py \
+  --start "2026-04-16 00" \
+  --end "2026-04-16 23" \
+  --prefix run_day
+
+python run_pipeline.py \
+  --start "2026-04-14 00" \
+  --end "2026-04-16 23" \
+  --prefix run_3day
+
+python run_pipeline.py \
+  --start "2026-04-10 00" \
+  --end "2026-04-16 23" \
+  --prefix run_week
