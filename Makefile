@@ -38,7 +38,7 @@ help:
 	@echo "    clean-all      Full clean"
 	@echo ""
 
-# ── setup ─────────────────────────────────────────────────────────────────────
+# ── setup
 install:
 	pip install -r requirements.txt
 
@@ -46,7 +46,7 @@ dirs:
 	mkdir -p data/raw/gharchive data/processed data/runs data/reports logs
 	@echo "✓ Directories created"
 
-# ── testing ───────────────────────────────────────────────────────────────────
+# ── testing 
 test:
 	pytest tests/ -v
 
@@ -62,14 +62,14 @@ test-analytics:
 test-utils:
 	pytest tests/test_utils.py -v
 
-# ── code quality ──────────────────────────────────────────────────────────────
+# ── code quality 
 lint:
 	ruff check src/ tests/
 
 format:
 	ruff format src/ tests/
 
-# ── pipeline — Shravani's named run-tag style ─────────────────────────────────
+# ── pipeline 
 START ?= 2026-04-16 12
 END   ?= 2026-04-16 13
 
@@ -112,11 +112,11 @@ ingest-full:
 analytics:
 	python src/analytics.py --no-enrich
 
-# ── notebook ──────────────────────────────────────────────────────────────────
+# ── notebook 
 notebook:
 	jupyter notebook notebooks/exploration.ipynb
 
-# ── clean ─────────────────────────────────────────────────────────────────────
+# ── clean 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete
