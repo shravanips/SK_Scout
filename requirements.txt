@@ -1,0 +1,18 @@
+# Core data
+pandas>=2.1.0
+numpy>=1.26.0
+pyarrow>=14.0.0        # Parquet engine
+
+# HTTP / downloading
+requests>=2.31.0
+
+# ML / analytics
+scikit-learn>=1.4.0
+scipy>=1.12.0          # added by Shravani — entropy calc in compute_actor_stats
+
+# Visualisation (optional — only needed for HTML report)
+plotly>=5.18.0
+
+# Notebook support (optional)
+jupyter>=1.0.0
+ipykernel>=6.29.0
