@@ -3,33 +3,6 @@ ingest.py
 ---------
 Downloads GHArchive .json.gz files, parses events, flags bot actors,
 computes per-repo and per-actor statistics, and detects coordinated activity.
-
-Source breakdown
-----------------
-Foundation (Kanak)
-  - download_hour / download_range / _build_url / _local_path
-  - _parse_file streaming architecture
-  - compute_repo_stats base signals (events_per_actor, bot_ratio, time_span_s,
-    events_per_second, event_type_diversity, suspicious_score)
-  - run_ingest orchestration pattern, save to Parquet
-
-New signals (Shravani)
-  - Extended bot patterns (mend-bolt, whitesource, deepsource, etc.) → now in config.py
-  - _has_phish_name()          – keyword match on repo names
-  - _extract_refs()            – pull branch/tag refs from CreateEvent payloads
-  - _extract_ai_coauthor()     – detect AI handle co-authorship in commit messages
-  - compute_actor_stats()      – per-actor behavioural fingerprint:
-                                  entropy, burst fraction, suspicious_human_score
-  - detect_lockstep()          – coordinated multi-account activity windows
-  - compute_repo_stats extended – phish_name_flag, ai_coauthor_flag,
-                                  distinct_branches, updated scoring weights
-  - run_ingest returns 4-tuple  – adds df_actors, df_lockstep
-  - processed_dir parameter    – supports Shravani's per-run folder layout
-
-Merged / unified
-  - All constants pulled from config.py (no more scattered hardcoding)
-  - Field name: is_bot_actor (Kanak's name kept for test-suite compatibility)
-  - utils.py helpers (save_parquet, ensure_dir, setup_logging) reused
 """
 
 import gzip
@@ -62,7 +35,7 @@ RAW_DIR       = PATHS.RAW
 PROCESSED_DIR = PATHS.PROCESSED
 
 
-# ── bot / phish helpers ───────────────────────────────────────────────────────
+# ── bot / phish helpers 
 def _is_bot_actor(login: Optional[str]) -> bool:
     """Return True if the actor login matches any known bot pattern."""
     if not login:
@@ -76,7 +49,7 @@ def _has_phish_name(repo_name: str) -> bool:
     return bool(PHISH_RE.search(name))
 
 
-# ── GHArchive download ────────────────────────────────────────────────────────
+# ── GHArchive download 
 def _build_url(dt: datetime) -> str:
     return GHARCHIVE_URL_TEMPLATE.format(
         year=dt.year, month=dt.month, day=dt.day, hour=dt.hour
@@ -97,6 +70,7 @@ def download_hour(dt: datetime, force: bool = False) -> Path:
     dt    : UTC datetime (only date + hour are used).
     force : Re-download even if the local file already exists.
     """
+  
     dest = _local_path(dt)
     ensure_dir(dest.parent)
 
@@ -125,10 +99,12 @@ def download_range(
     end: datetime,
     force: bool = False,
 ) -> List[Path]:
+  
     """
     Download all GHArchive hour files between start (inclusive) and end (exclusive).
     Uses ThreadPoolExecutor for parallel downloads.
     """
+  
     hours: List[datetime] = []
     cur = start.replace(minute=0, second=0, microsecond=0)
     while cur < end:
@@ -148,9 +124,10 @@ def download_range(
     return sorted(paths)
 
 
-# ── payload extraction helpers (Shravani) ─────────────────────────────────────
+# ── payload extraction helpers 
 def _extract_refs(event: dict) -> List[str]:
     """Pull branch/tag ref names from CreateEvent payloads."""
+  
     payload = event.get("payload", {})
     ref = payload.get("ref")
     return [ref] if ref else []
@@ -158,6 +135,7 @@ def _extract_refs(event: dict) -> List[str]:
 
 def _extract_ai_coauthor(event: dict) -> bool:
     """Return True if any commit message or author name matches an AI handle."""
+  
     commits = event.get("payload", {}).get("commits", [])
     for c in commits:
         msg    = c.get("message", "")
@@ -167,7 +145,7 @@ def _extract_ai_coauthor(event: dict) -> bool:
     return False
 
 
-# ── streaming parser ──────────────────────────────────────────────────────────
+# ── streaming parser 
 def _parse_file(
     path: Path,
     max_events: Optional[int] = None,
@@ -178,6 +156,7 @@ def _parse_file(
     Yields one flat dict per event with all signals from both contributors.
     max_events=None means read all lines.
     """
+  
     with gzip.open(path, "rt", encoding="utf-8") as f:
         for i, line in enumerate(f):
             if max_events is not None and i >= max_events:
@@ -192,7 +171,7 @@ def _parse_file(
             repo_name = event.get("repo", {}).get("name", "")
 
             yield {
-                # ── core fields (Kanak) ────────────────────────────────────
+              
                 "event_id":    event.get("id"),
                 "event_type":  event.get("type"),
                 "actor_login": login,
@@ -203,8 +182,7 @@ def _parse_file(
                 "is_public":   event.get("public"),
                 "org":         (event.get("org") or {}).get("login"),
                 "payload_size": len(line),
-                "is_bot_actor": _is_bot_actor(login),   # unified field name
-                # ── new signals (Shravani) ─────────────────────────────────
+                "is_bot_actor": _is_bot_actor(login),   
                 "phish_name":   _has_phish_name(repo_name),
                 "refs":         _extract_refs(event),
                 "ai_coauthor":  _extract_ai_coauthor(event),
@@ -216,6 +194,7 @@ def parse_files(
     max_events_per_file: Optional[int] = None,
 ) -> pd.DataFrame:
     """Parse a list of .json.gz files into a single DataFrame."""
+  
     all_rows: List[dict] = []
     for path in paths:
         logger.info("Parsing %s …", path.name)
@@ -232,7 +211,7 @@ def parse_files(
     return df
 
 
-# ── per-actor stats (Shravani) ────────────────────────────────────────────────
+# ── per-actor stats 
 def compute_actor_stats(df: pd.DataFrame) -> pd.DataFrame:
     """
     Per-actor behavioural fingerprint for suspicious-human detection.
@@ -246,6 +225,7 @@ def compute_actor_stats(df: pd.DataFrame) -> pd.DataFrame:
 
     Each flag contributes +1 to suspicious_human_score (max 5).
     """
+  
     from scipy.stats import entropy as scipy_entropy
 
     records = []
@@ -308,7 +288,7 @@ def compute_actor_stats(df: pd.DataFrame) -> pd.DataFrame:
     return actor_df.sort_values("suspicious_human_score", ascending=False)
 
 
-# ── lockstep detection (Shravani) ─────────────────────────────────────────────
+# ── lockstep detection 
 def detect_lockstep(
     df: pd.DataFrame,
     window_minutes: int = DEFAULT_PARAMS.LOCKSTEP_WINDOW_MIN,
@@ -318,6 +298,7 @@ def detect_lockstep(
     Find groups of accounts that hit the same repos in tight time windows.
     A lockstep window flags coordinated or synthetic activity.
     """
+  
     df2 = df.copy()
     df2["window"] = df2["created_at"].dt.floor(f"{window_minutes}min")
 
@@ -340,17 +321,13 @@ def detect_lockstep(
     return pd.DataFrame(results).sort_values("actor_count", ascending=False)
 
 
-# ── per-repo stats ────────────────────────────────────────────────────────────
+# ── per-repo stats 
 def compute_repo_stats(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate per-repo statistics and compute a suspicion score.
-
-    Base signals (Kanak): events_per_actor, bot_ratio, time_span_s,
-                          events_per_second, event_type_diversity
-    New signals (Shravani): phish_name_flag, ai_coauthor_flag,
-                            distinct_branches (from CreateEvents)
     Extended scoring weights from config.REPO_SUSPICION.
     """
+  
     rs = REPO_SUSPICION
 
     stats = df.groupby("repo_name", sort=False).agg(
@@ -360,8 +337,8 @@ def compute_repo_stats(df: pd.DataFrame) -> pd.DataFrame:
         first_event      =("created_at",  "min"),
         last_event       =("created_at",  "max"),
         total_payload_b  =("payload_size","sum"),
-        phish_name_flag  =("phish_name",  "max"),   # Shravani
-        ai_coauthor_flag =("ai_coauthor", "max"),   # Shravani
+        phish_name_flag  =("phish_name",  "max"),   
+        ai_coauthor_flag =("ai_coauthor", "max"),   
         unique_orgs      =("org",         "nunique"),
     ).reset_index()
 
@@ -380,7 +357,7 @@ def compute_repo_stats(df: pd.DataFrame) -> pd.DataFrame:
     )
     stats = stats.merge(ev_div, on="repo_name", how="left")
 
-    # Branch explosion from CreateEvents (Shravani)
+    # Branch explosion from CreateEvents 
     create_df = df[df["event_type"] == "CreateEvent"].copy()
     if not create_df.empty:
         exploded = create_df.explode("refs")
@@ -396,7 +373,7 @@ def compute_repo_stats(df: pd.DataFrame) -> pd.DataFrame:
 
     stats["distinct_branches"] = stats["distinct_branches"].fillna(0).astype(int)
 
-    # Suspicion score — Kanak's base + Shravani's new signals
+    # Suspicion score 
     stats["suspicious_score"] = (
         (stats["events_per_actor"]  > rs.EVENTS_PER_ACTOR_THRESHOLD).astype(int) * 1
       + (stats["bot_ratio"]         > rs.BOT_RATIO_THRESHOLD).astype(int)        * 2
@@ -410,21 +387,21 @@ def compute_repo_stats(df: pd.DataFrame) -> pd.DataFrame:
     return stats.sort_values("suspicious_score", ascending=False)
 
 
-# ── orchestration ─────────────────────────────────────────────────────────────
+# ── orchestration 
 def run_ingest(
     start: datetime,
     end: datetime,
     max_events_per_file: Optional[int] = None,
     force_download: bool = False,
     output_prefix: str = "events",
-    processed_dir: Optional[Path] = None,   # Shravani: per-run dirs
+    processed_dir: Optional[Path] = None,  
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Full ingest pipeline: download → parse → compute stats → save Parquet.
 
     Returns (events_df, repo_stats_df, actor_stats_df, lockstep_df).
-    actor_stats_df and lockstep_df are new outputs from Shravani.
     """
+  
     setup_logging()
     processed_dir = Path(processed_dir) if processed_dir is not None else PROCESSED_DIR
     ensure_dir(processed_dir)
@@ -455,7 +432,7 @@ def run_ingest(
     return df_events, df_repos, df_actors, df_lockstep
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# ── CLI 
 if __name__ == "__main__":
     import argparse
     from config import DATETIME_FMT
