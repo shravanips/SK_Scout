@@ -1,9 +1,0 @@
-bot_category,data_repository_source,files_config files_files github,github_profile_github profile,no_description,readme_profile readme_profile,repo_结果可用于tvbox等播放软件_秒播级体验 支持自定义频道与epg,repositorio_meu repositorio_meu,rust_backend_ai,结果可用于tvbox等播放软件 支持工作流_结果可用于tvbox等播放软件_秒播级体验,All
-ci_cd,212,13,7,74500,5,1,2,0,4,74744
-code_quality,0,0,0,101,0,0,0,0,0,101
-dependency,181,0,0,21922,0,0,0,15,0,22118
-docs,2,0,0,38,0,0,0,0,0,40
-other,41,0,0,22878,0,1,0,0,0,22920
-security,0,0,0,69,0,0,0,0,0,69
-translation,0,0,0,55,0,0,0,0,0,55
-All,436,13,7,119563,5,2,2,15,4,120047
