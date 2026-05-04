@@ -2,12 +2,6 @@
 utils.py
 --------
 Shared helpers used by ingest.py, analytics.py, and notebooks.
-
-Source breakdown
-----------------
-All code here is Kanak's original utils.py.
-Constants (token, log level) now read from config.py instead of being
-inlined, so changes propagate automatically.
 """
 
 import logging
@@ -22,9 +16,10 @@ import requests
 from config import GITHUB_TOKEN, LOG_LEVEL
 
 
-# ── logging ───────────────────────────────────────────────────────────────────
+# ── logging 
 def setup_logging(level: int = logging.INFO) -> None:
     """Configure root logger with timestamp + level formatting."""
+    
     from pathlib import Path as _Path
     log_dir = _Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -40,7 +35,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     )
 
 
-# ── filesystem ────────────────────────────────────────────────────────────────
+# ── filesystem 
 def ensure_dir(path: Path) -> Path:
     """Create directory (and parents) if it doesn't exist. Return the path."""
     path = Path(path)
@@ -48,9 +43,10 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
-# ── Parquet helpers ───────────────────────────────────────────────────────────
+# ── Parquet helpers 
 def save_parquet(df: pd.DataFrame, path: Path, **kwargs) -> None:
     """Save a DataFrame to Parquet, creating parent dirs as needed."""
+    
     ensure_dir(Path(path).parent)
     df.to_parquet(path, index=False, **kwargs)
     size_kb = Path(path).stat().st_size / 1024
@@ -61,6 +57,7 @@ def save_parquet(df: pd.DataFrame, path: Path, **kwargs) -> None:
 
 def load_parquet(path: Path) -> pd.DataFrame:
     """Load a Parquet file, raising a clear error if it doesn't exist."""
+    
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(
@@ -70,7 +67,7 @@ def load_parquet(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-# ── GitHub API helpers ────────────────────────────────────────────────────────
+# ── GitHub API helpers 
 _GH_API_BASE = "https://api.github.com"
 _GH_TOKEN = GITHUB_TOKEN
 
@@ -90,8 +87,9 @@ def fetch_repo_metadata(repo_full_name: str, retries: int = 3) -> Optional[dict]
     stargazers_count, forks_count, size, archived, created_at, pushed_at.
     Returns None on error.
 
-    NOTE: Requires GITHUB_TOKEN env var for higher rate limits (5000/hr vs 60/hr).
+    Requires GITHUB_TOKEN env var for higher rate limits (5000/hr vs 60/hr).
     """
+    
     url = f"{_GH_API_BASE}/repos/{repo_full_name}"
     log = logging.getLogger(__name__)
 
@@ -143,6 +141,7 @@ def enrich_repos_with_github_api(
 
     Returns a DataFrame with one row per repo.
     """
+    
     log = logging.getLogger(__name__)
     results = []
     for i, name in enumerate(repo_names[:max_repos]):
@@ -157,9 +156,10 @@ def enrich_repos_with_github_api(
     return pd.DataFrame(results) if results else pd.DataFrame()
 
 
-# ── text helpers ──────────────────────────────────────────────────────────────
+# ── text helpers
 def clean_description(text: Optional[str]) -> str:
     """Lowercase, strip, return empty string for None."""
+    
     if not text:
         return ""
     return text.strip().lower()
