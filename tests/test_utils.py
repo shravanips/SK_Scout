@@ -29,15 +29,15 @@ from utils import (
 )
 
 
-# ── setup_logging ─────────────────────────────────────────────────────────────
+# ── setup_logging 
 class TestSetupLogging:
     def test_does_not_raise(self, tmp_path, monkeypatch):
         # Point FileHandler to a writable temp path
+        
         log_path = tmp_path / "logs" / "run.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "logs").mkdir(exist_ok=True)
-        # Should not raise
+        (tmp_path / "logs").mkdir(exist_ok=True)           # Should not raise
         setup_logging(level=logging.WARNING)
 
     def test_root_logger_level_set(self, tmp_path, monkeypatch):
@@ -48,7 +48,7 @@ class TestSetupLogging:
         assert logging.getLogger().level <= logging.ERROR
 
 
-# ── ensure_dir ────────────────────────────────────────────────────────────────
+# ── ensure_dir 
 class TestEnsureDir:
     def test_creates_directory(self, tmp_path):
         new_dir = tmp_path / "a" / "b" / "c"
@@ -61,7 +61,7 @@ class TestEnsureDir:
         assert isinstance(result, Path)
 
     def test_idempotent_on_existing_dir(self, tmp_path):
-        ensure_dir(tmp_path)  # already exists — should not raise
+        ensure_dir(tmp_path)                    # already exists — should not raise
         assert tmp_path.is_dir()
 
     def test_accepts_string(self, tmp_path):
@@ -70,7 +70,7 @@ class TestEnsureDir:
         assert Path(target).is_dir()
 
 
-# ── save_parquet / load_parquet ───────────────────────────────────────────────
+# ── save_parquet / load_parquet 
 class TestParquetRoundtrip:
     def test_save_and_load_roundtrip(self, tmp_path, repo_stats_df):
         path = tmp_path / "stats.parquet"
@@ -105,7 +105,7 @@ class TestParquetRoundtrip:
         assert loaded["float_col"].dtype.kind == "f"
 
 
-# ── clean_description ─────────────────────────────────────────────────────────
+# ── clean_description 
 class TestCleanDescription:
     def test_lowercases(self):
         assert clean_description("Hello World") == "hello world"
@@ -123,7 +123,7 @@ class TestCleanDescription:
         assert clean_description("clean text") == "clean text"
 
 
-# ── fetch_repo_metadata ───────────────────────────────────────────────────────
+# ── fetch_repo_metadata 
 class TestFetchRepoMetadata:
     def _mock_response(self, status_code: int, json_data: dict | None = None, headers: dict | None = None):
         resp = MagicMock()
@@ -163,7 +163,7 @@ class TestFetchRepoMetadata:
         assert result is None
 
     @patch("utils.requests.get")
-    @patch("utils.time.sleep")  # don't actually sleep in tests
+    @patch("utils.time.sleep")                         # don't actually sleep in tests
     def test_rate_limit_waits_and_retries(self, mock_sleep, mock_get):
         future_reset = int(time.time()) + 2
         rate_limited = self._mock_response(
@@ -189,7 +189,7 @@ class TestFetchRepoMetadata:
         assert mock_get.call_count == 2
 
 
-# ── enrich_repos_with_github_api ──────────────────────────────────────────────
+# ── enrich_repos_with_github_api 
 class TestEnrichReposWithGithubApi:
     @patch("utils.fetch_repo_metadata")
     def test_returns_dataframe(self, mock_fetch):
