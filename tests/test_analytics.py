@@ -2,13 +2,6 @@
 tests/test_analytics.py
 -----------------------
 Unit tests for src/analytics.py — all 8 classes.
-
-Coverage by origin
-------------------
-Kanak classes:    BotActorProfiler, RepoPurposeAnalyser, BotRepoCorrelation,
-                  AnomalyDetector (extended), ReportExporter
-Shravani classes: SuspiciousHumanAnalyser, LockstepAnalyser,
-                  PhishingRepoAnalyser
 """
 
 import sys
@@ -32,7 +25,7 @@ from analytics import (
 )
 
 
-# ── classify_bot ──────────────────────────────────────────────────────────────
+# ── classify_bot 
 class TestClassifyBot:
     def test_dependency(self):    assert classify_bot("dependabot[bot]") == "dependency"
     def test_renovate(self):      assert classify_bot("renovate") == "dependency"
@@ -45,7 +38,7 @@ class TestClassifyBot:
     def test_case_insensitive(self): assert classify_bot("DEPENDABOT[BOT]") == "dependency"
 
 
-# ── BotActorProfiler (Kanak) ──────────────────────────────────────────────────
+# ── BotActorProfiler 
 class TestBotActorProfiler:
     @pytest.fixture
     def profiler(self, events_df):
@@ -93,7 +86,7 @@ class TestBotActorProfiler:
         assert isinstance(profiler.event_type_breakdown(), pd.DataFrame)
 
 
-# ── SuspiciousHumanAnalyser (Shravani) ────────────────────────────────────────
+# ── SuspiciousHumanAnalyser 
 class TestSuspiciousHumanAnalyser:
     @pytest.fixture
     def analyser(self, actor_stats_df):
@@ -124,6 +117,7 @@ class TestSuspiciousHumanAnalyser:
 
     def test_ai_coauthor_flag_true(self, analyser):
         # carol has an AI co-author in conftest sample data
+      
         result = analyser.ai_coauthor_accounts()
         if not result.empty:
             assert result["ai_coauthor"].all()
@@ -134,7 +128,7 @@ class TestSuspiciousHumanAnalyser:
         assert analyser.top_suspicious().empty
 
 
-# ── LockstepAnalyser (Shravani) ───────────────────────────────────────────────
+# ── LockstepAnalyser 
 class TestLockstepAnalyser:
     @pytest.fixture
     def analyser(self, lockstep_df):
@@ -165,7 +159,7 @@ class TestLockstepAnalyser:
                     "max_actors", "total_events"}.issubset(result.columns)
 
 
-# ── RepoPurposeAnalyser (Kanak + Shravani suspicious category) ────────────────
+# ── RepoPurposeAnalyser 
 class TestRepoPurposeAnalyser:
     @pytest.fixture
     def analyser(self, repo_stats_df, enriched_df):
@@ -193,6 +187,7 @@ class TestRepoPurposeAnalyser:
 
     def test_suspicious_category_available(self, repo_stats_df):
         # Inject a suspicious-name repo
+      
         suspicious_row = repo_stats_df.iloc[:1].copy()
         suspicious_row["repo_name"] = "owner/roblox-hack"
         df = pd.concat([repo_stats_df, suspicious_row], ignore_index=True)
@@ -204,7 +199,7 @@ class TestRepoPurposeAnalyser:
         assert isinstance(analyser.bot_heavy_repo_purposes(events_df), pd.DataFrame)
 
 
-# ── BotRepoCorrelation (Kanak) ────────────────────────────────────────────────
+# ── BotRepoCorrelation 
 class TestBotRepoCorrelation:
     @pytest.fixture
     def correlation(self, events_df, repo_stats_df, enriched_df):
@@ -229,7 +224,7 @@ class TestBotRepoCorrelation:
             assert (result["rank"] <= 3).all()
 
 
-# ── PhishingRepoAnalyser (Shravani) ───────────────────────────────────────────
+# ── PhishingRepoAnalyser 
 class TestPhishingRepoAnalyser:
     @pytest.fixture
     def analyser(self, repo_stats_df):
@@ -265,7 +260,7 @@ class TestPhishingRepoAnalyser:
         assert analyser.branch_explosion_repos().empty
 
 
-# ── AnomalyDetector (Kanak + Shravani added distinct_branches) ───────────────
+# ── AnomalyDetector 
 class TestAnomalyDetector:
     def test_returns_df(self, repo_stats_df):
         assert isinstance(AnomalyDetector(repo_stats_df).zscore_anomalies(), pd.DataFrame)
@@ -281,7 +276,6 @@ class TestAnomalyDetector:
         assert "max_z" in result.columns and "anomaly_feature" in result.columns
 
     def test_distinct_branches_in_features(self, repo_stats_df):
-        # distinct_branches added by Shravani should be included when present
         if "distinct_branches" in repo_stats_df.columns:
             features = AnomalyDetector.FEATURE_COLS
             assert "distinct_branches" in features
@@ -295,7 +289,7 @@ class TestAnomalyDetector:
         assert AnomalyDetector(pd.DataFrame({"repo_name": ["x"]})).zscore_anomalies().empty
 
 
-# ── ReportExporter ────────────────────────────────────────────────────────────
+# ── ReportExporter 
 class TestReportExporter:
     def test_save_csv_creates_file(self, tmp_path, repo_stats_df):
         path = ReportExporter(output_dir=tmp_path).save_csv(repo_stats_df, "test")
