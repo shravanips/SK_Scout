@@ -1,0 +1,8 @@
+bot_category,n_bots,total_events,median_repos,wide_footprint_pct
+ci_cd,108,390793,1.0,0.027777777777777776
+code_quality,10,1133,1.5,0.4
+dependency,238,142596,1.0,0.15126050420168066
+docs,2,279,73.0,1.0
+other,4399,188219,1.0,0.09320300068197318
+security,2,152,39.5,1.0
+translation,9,448,1.0,0.1111111111111111
