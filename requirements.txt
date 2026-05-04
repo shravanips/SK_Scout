@@ -8,7 +8,7 @@ requests>=2.31.0
 
 # ML / analytics
 scikit-learn>=1.4.0
-scipy>=1.12.0          # added by Shravani — entropy calc in compute_actor_stats
+scipy>=1.12.0          
 
 # Visualisation (optional — only needed for HTML report)
 plotly>=5.18.0
