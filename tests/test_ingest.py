@@ -2,16 +2,6 @@
 tests/test_ingest.py
 --------------------
 Unit tests for src/ingest.py — no network calls required.
-
-Coverage
---------
-Kanak's original tests (all preserved):
-  TestIsBot, TestParseFile (basic), TestComputeRepoStats (base signals)
-
-New tests for Shravani's additions:
-  TestPhishName, TestAiCoauthor, TestExtractRefs,
-  TestComputeActorStats, TestDetectLockstep,
-  TestComputeRepoStatsExtended
 """
 
 import gzip
@@ -37,7 +27,7 @@ from ingest import (
 )
 
 
-# ── fixtures (supplement conftest.py) ────────────────────────────────────────
+# ── fixtures 
 def _make_gz(events: list, path: Path) -> Path:
     with gzip.open(path, "wt", encoding="utf-8") as f:
         for e in events:
@@ -74,7 +64,7 @@ SAMPLE_EVENTS = [
 ]
 
 
-# ── _is_bot_actor (Kanak — field renamed from _is_bot) ───────────────────────
+# ── _is_bot_actor 
 class TestIsBotActor:
     def test_bracket_bot_suffix(self):
         assert _is_bot_actor("dependabot[bot]") is True
@@ -85,7 +75,6 @@ class TestIsBotActor:
     def test_github_actions(self):
         assert _is_bot_actor("github-actions[bot]") is True
 
-    # Shravani additions to BOT_PATTERNS
     def test_mend_bolt(self):
         assert _is_bot_actor("mend-bolt") is True
 
@@ -108,7 +97,7 @@ class TestIsBotActor:
         assert _is_bot_actor("") is False
 
 
-# ── _has_phish_name (Shravani) ────────────────────────────────────────────────
+# ── _has_phish_name 
 class TestPhishName:
     def test_crack_keyword(self):
         assert _has_phish_name("user/minecraft-crack") is True
@@ -130,10 +119,11 @@ class TestPhishName:
 
     def test_legitimate_free(self):
         # "free" is a keyword — intentionally conservative
+      
         assert _has_phish_name("owner/free-resource") is True
 
 
-# ── _extract_refs (Shravani) ─────────────────────────────────────────────────
+# ── _extract_refs 
 class TestExtractRefs:
     def test_returns_ref_from_create_event(self):
         event = {"payload": {"ref": "feature/new-branch"}}
@@ -147,7 +137,7 @@ class TestExtractRefs:
         assert _extract_refs({}) == []
 
 
-# ── _extract_ai_coauthor (Shravani) ───────────────────────────────────────────
+# ── _extract_ai_coauthor 
 class TestAiCoauthor:
     def test_detects_claude_in_message(self):
         event = {
@@ -192,7 +182,7 @@ class TestAiCoauthor:
         assert _extract_ai_coauthor({}) is False
 
 
-# ── _parse_file (Kanak, extended) ─────────────────────────────────────────────
+# ── _parse_file 
 class TestParseFile:
     def test_basic_parsing(self, tmp_path):
         gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
@@ -205,7 +195,6 @@ class TestParseFile:
         required = {
             "event_id", "event_type", "actor_login", "repo_name",
             "created_at", "is_bot_actor",
-            # Shravani additions:
             "phish_name", "refs", "ai_coauthor",
         }
         assert required.issubset(set(row.keys()))
@@ -251,7 +240,7 @@ class TestParseFile:
         assert "feature/new-branch" in row["refs"]
 
 
-# ── compute_repo_stats (Kanak base + Shravani extensions) ─────────────────────
+# ── compute_repo_stats 
 class TestComputeRepoStats:
     @pytest.fixture
     def sample_df(self, tmp_path):
@@ -266,7 +255,7 @@ class TestComputeRepoStats:
 
     def test_repo_count(self, sample_df):
         stats = compute_repo_stats(sample_df)
-        assert len(stats) == 2  # alice/my-app, bob/infra
+        assert len(stats) == 2                  # alice/my-app, bob/infra
 
     def test_bot_ratio_range(self, sample_df):
         stats = compute_repo_stats(sample_df)
@@ -280,7 +269,6 @@ class TestComputeRepoStats:
     def test_suspicious_score_non_negative(self, sample_df):
         assert (compute_repo_stats(sample_df)["suspicious_score"] >= 0).all()
 
-    # Shravani column tests
     def test_phish_name_flag_column_exists(self, sample_df):
         assert "phish_name_flag" in compute_repo_stats(sample_df).columns
 
@@ -295,7 +283,7 @@ class TestComputeRepoStats:
         assert (stats["distinct_branches"] >= 0).all()
 
 
-# ── compute_actor_stats (Shravani) ────────────────────────────────────────────
+# ── compute_actor_stats 
 class TestComputeActorStats:
     @pytest.fixture
     def sample_df(self, tmp_path):
@@ -325,6 +313,7 @@ class TestComputeActorStats:
         df = compute_actor_stats(sample_df)
         bot_rows = df[df["is_bot_actor"]]
         # Known bots bypass the human scoring loop — score should be 0
+      
         assert (bot_rows["suspicious_human_score"] == 0).all()
 
     def test_covers_all_actors(self, sample_df):
@@ -333,7 +322,7 @@ class TestComputeActorStats:
         assert expected_actors == set(df["actor_login"])
 
 
-# ── detect_lockstep (Shravani) ────────────────────────────────────────────────
+# ── detect_lockstep 
 class TestDetectLockstep:
     @pytest.fixture
     def sample_df(self, tmp_path):
@@ -347,13 +336,15 @@ class TestDetectLockstep:
         assert isinstance(detect_lockstep(sample_df), pd.DataFrame)
 
     def test_min_accounts_filter(self, sample_df):
-        # With min_accounts=10, no windows should be flagged on our tiny sample
+        # With min_accounts=10, no windows should be flagged on sample
+      
         result = detect_lockstep(sample_df, min_accounts=10)
         assert result.empty
 
     def test_low_threshold_returns_rows(self, sample_df):
         result = detect_lockstep(sample_df, min_accounts=2, window_minutes=60)
         # bob/infra has 2 actors in the same hour window
+      
         assert not result.empty
 
     def test_output_columns(self, sample_df):
