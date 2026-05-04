@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
-# ── raw event data ────────────────────────────────────────────────────────────
+# ── raw event data
 SAMPLE_EVENTS = [
     {
         "id": "1", "type": "PushEvent",
@@ -95,7 +95,7 @@ def sample_gz_factory(tmp_path):
     return _factory
 
 
-# ── DataFrame fixtures ────────────────────────────────────────────────────────
+# ── DataFrame fixtures 
 @pytest.fixture
 def events_df(sample_gz) -> pd.DataFrame:
     from ingest import _parse_file
