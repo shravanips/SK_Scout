@@ -3,20 +3,6 @@ run_pipeline.py
 ---------------
 One-command entry point: download → ingest → analyse → HTML report.
 
-Source breakdown
-----------------
-Shravani
-  - Per-run isolated folder layout  (data/runs/<run_name>/)
-  - run_info.json metadata sidecar
-  - make_run_name() helper
-  - --run-tag argument
-  - setup_run_logging() (per-run log file, clears old handlers)
-
-Kanak
-  - --no-enrich / --max-enrich flags  (GitHub API enrichment toggle)
-  - --clusters argument
-  - Clean print summary format
-
 Examples
 --------
 # Quick sanity test (1 hour, 5k events, no API)
@@ -51,7 +37,7 @@ from analytics import run_analytics
 from config    import DATETIME_FMT, DEFAULT_PARAMS, PATHS
 
 
-# ── logging setup (Shravani) ──────────────────────────────────────────────────
+# ── logging setup 
 def setup_run_logging(log_file: Path) -> None:
     """Configure console + per-run file logging. Clears old handlers."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -73,7 +59,7 @@ def setup_run_logging(log_file: Path) -> None:
     root.addHandler(fh)
 
 
-# ── run naming (Shravani) ─────────────────────────────────────────────────────
+# ── run naming 
 def make_run_name(run_tag: str, start: datetime, end: datetime) -> str:
     ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_str = start.strftime("%Y%m%d_%H")
@@ -88,7 +74,7 @@ def save_run_info(run_dir: Path, info: dict) -> None:
     )
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
+# ── main 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="GitGub full pipeline: ingest + analytics"
@@ -105,7 +91,7 @@ def main() -> None:
                         help="Re-download already cached files")
     parser.add_argument("--prefix",     default="events",
                         help="Parquet file prefix (default: events)")
-    # analytics controls (Kanak)
+    # analytics controls 
     parser.add_argument("--no-enrich",  action="store_true",
                         help="Skip GitHub API metadata enrichment")
     parser.add_argument("--max-enrich", type=int,
@@ -114,7 +100,7 @@ def main() -> None:
     parser.add_argument("--clusters",   type=int,
                         default=DEFAULT_PARAMS.N_CLUSTERS,
                         help=f"KMeans clusters for repo purpose (default: {DEFAULT_PARAMS.N_CLUSTERS})")
-    # run identity (Shravani)
+    # run identity 
     parser.add_argument("--run-tag",    default="run",
                         help='Short label for this run, e.g. sanity, fourhour, full24h')
     args = parser.parse_args()
@@ -122,7 +108,7 @@ def main() -> None:
     start = datetime.strptime(args.start, DATETIME_FMT)
     end   = datetime.strptime(args.end,   DATETIME_FMT)
 
-    # Per-run directories (Shravani)
+    # Per-run directories 
     run_name      = make_run_name(args.run_tag, start, end)
     run_dir       = PATHS.RUNS / run_name
     processed_dir = run_dir / "processed"
@@ -141,7 +127,7 @@ def main() -> None:
     print(f"  Enrich : {'no' if args.no_enrich else f'yes (max {args.max_enrich} repos)'}")
     print(f"{'='*72}\n")
 
-    # ── Step 1: ingest ────────────────────────────────────────────────────────
+    # ── Step 1: ingest 
     df_events, df_repos, df_actors, df_lockstep = run_ingest(
         start=start,
         end=end,
@@ -165,7 +151,7 @@ def main() -> None:
         f"{actor_count:,} actors | {lockstep_count:,} lockstep windows\n"
     )
 
-    # ── Step 2: analytics ─────────────────────────────────────────────────────
+    # ── Step 2: analytics 
     run_analytics(
         events_prefix=args.prefix,
         enrich_with_github=not args.no_enrich,
@@ -175,7 +161,7 @@ def main() -> None:
         reports_dir=reports_dir,
     )
 
-    # ── Persist run metadata (Shravani) ───────────────────────────────────────
+    # ── Persist run metadata 
     save_run_info(run_dir, {
         "run_name":            run_name,
         "run_tag":             args.run_tag,
