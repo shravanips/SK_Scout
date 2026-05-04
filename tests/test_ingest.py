@@ -1,0 +1,369 @@
+"""
+tests/test_ingest.py
+--------------------
+Unit tests for src/ingest.py — no network calls required.
+
+Coverage
+--------
+Kanak's original tests (all preserved):
+  TestIsBot, TestParseFile (basic), TestComputeRepoStats (base signals)
+
+New tests for Shravani's additions:
+  TestPhishName, TestAiCoauthor, TestExtractRefs,
+  TestComputeActorStats, TestDetectLockstep,
+  TestComputeRepoStatsExtended
+"""
+
+import gzip
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from ingest import (
+    _is_bot_actor,
+    _has_phish_name,
+    _extract_refs,
+    _extract_ai_coauthor,
+    _parse_file,
+    compute_repo_stats,
+    compute_actor_stats,
+    detect_lockstep,
+)
+
+
+# ── fixtures (supplement conftest.py) ────────────────────────────────────────
+def _make_gz(events: list, path: Path) -> Path:
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        for e in events:
+            f.write(json.dumps(e) + "\n")
+    return path
+
+
+SAMPLE_EVENTS = [
+    {
+        "id": "1", "type": "PushEvent",
+        "actor": {"login": "alice", "id": 1},
+        "repo": {"name": "alice/my-app", "id": 10},
+        "created_at": "2026-04-15T12:00:00Z", "public": True,
+        "payload": {"commits": [{"message": "fix bug", "author": {"name": "Alice"}}]},
+    },
+    {
+        "id": "2", "type": "PullRequestEvent",
+        "actor": {"login": "dependabot[bot]", "id": 2},
+        "repo": {"name": "alice/my-app", "id": 10},
+        "created_at": "2026-04-15T12:01:00Z", "public": True, "payload": {},
+    },
+    {
+        "id": "3", "type": "PushEvent",
+        "actor": {"login": "github-actions[bot]", "id": 3},
+        "repo": {"name": "bob/infra", "id": 11},
+        "created_at": "2026-04-15T12:02:00Z", "public": True, "payload": {},
+    },
+    {
+        "id": "4", "type": "IssueCommentEvent",
+        "actor": {"login": "bob", "id": 4},
+        "repo": {"name": "bob/infra", "id": 11},
+        "created_at": "2026-04-15T12:03:00Z", "public": True, "payload": {},
+    },
+]
+
+
+# ── _is_bot_actor (Kanak — field renamed from _is_bot) ───────────────────────
+class TestIsBotActor:
+    def test_bracket_bot_suffix(self):
+        assert _is_bot_actor("dependabot[bot]") is True
+
+    def test_known_bot_name(self):
+        assert _is_bot_actor("renovate") is True
+
+    def test_github_actions(self):
+        assert _is_bot_actor("github-actions[bot]") is True
+
+    # Shravani additions to BOT_PATTERNS
+    def test_mend_bolt(self):
+        assert _is_bot_actor("mend-bolt") is True
+
+    def test_whitesource(self):
+        assert _is_bot_actor("whitesource-bolt") is True
+
+    def test_deepsource(self):
+        assert _is_bot_actor("deepsource") is True
+
+    def test_crowdin(self):
+        assert _is_bot_actor("crowdin-bot") is True
+
+    def test_human_user(self):
+        assert _is_bot_actor("alice") is False
+
+    def test_none(self):
+        assert _is_bot_actor(None) is False
+
+    def test_empty(self):
+        assert _is_bot_actor("") is False
+
+
+# ── _has_phish_name (Shravani) ────────────────────────────────────────────────
+class TestPhishName:
+    def test_crack_keyword(self):
+        assert _has_phish_name("user/minecraft-crack") is True
+
+    def test_hack_keyword(self):
+        assert _has_phish_name("user/roblox-hack") is True
+
+    def test_stealer_keyword(self):
+        assert _has_phish_name("user/discord-stealer") is True
+
+    def test_wallet_keyword(self):
+        assert _has_phish_name("owner/solana-wallet-grabber") is True
+
+    def test_clean_repo_name(self):
+        assert _has_phish_name("alice/my-app") is False
+
+    def test_no_slash(self):
+        assert _has_phish_name("free-tool") is True
+
+    def test_legitimate_free(self):
+        # "free" is a keyword — intentionally conservative
+        assert _has_phish_name("owner/free-resource") is True
+
+
+# ── _extract_refs (Shravani) ─────────────────────────────────────────────────
+class TestExtractRefs:
+    def test_returns_ref_from_create_event(self):
+        event = {"payload": {"ref": "feature/new-branch"}}
+        assert _extract_refs(event) == ["feature/new-branch"]
+
+    def test_returns_empty_when_no_ref(self):
+        event = {"payload": {}}
+        assert _extract_refs(event) == []
+
+    def test_returns_empty_when_no_payload(self):
+        assert _extract_refs({}) == []
+
+
+# ── _extract_ai_coauthor (Shravani) ───────────────────────────────────────────
+class TestAiCoauthor:
+    def test_detects_claude_in_message(self):
+        event = {
+            "payload": {
+                "commits": [
+                    {"message": "Co-authored-by: Claude", "author": {"name": "alice"}}
+                ]
+            }
+        }
+        assert _extract_ai_coauthor(event) is True
+
+    def test_detects_copilot_in_author(self):
+        event = {
+            "payload": {
+                "commits": [
+                    {"message": "update readme", "author": {"name": "GitHub Copilot"}}
+                ]
+            }
+        }
+        assert _extract_ai_coauthor(event) is True
+
+    def test_detects_gpt4_in_message(self):
+        event = {
+            "payload": {
+                "commits": [{"message": "generated by gpt-4", "author": {"name": "alice"}}]
+            }
+        }
+        assert _extract_ai_coauthor(event) is True
+
+    def test_clean_commit_returns_false(self):
+        event = {
+            "payload": {
+                "commits": [{"message": "fix typo in readme", "author": {"name": "alice"}}]
+            }
+        }
+        assert _extract_ai_coauthor(event) is False
+
+    def test_no_commits_returns_false(self):
+        assert _extract_ai_coauthor({"payload": {}}) is False
+
+    def test_no_payload_returns_false(self):
+        assert _extract_ai_coauthor({}) is False
+
+
+# ── _parse_file (Kanak, extended) ─────────────────────────────────────────────
+class TestParseFile:
+    def test_basic_parsing(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
+        rows = list(_parse_file(gz))
+        assert len(rows) == 4
+
+    def test_required_fields_present(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS[:1], tmp_path / "test.json.gz")
+        row = list(_parse_file(gz))[0]
+        required = {
+            "event_id", "event_type", "actor_login", "repo_name",
+            "created_at", "is_bot_actor",
+            # Shravani additions:
+            "phish_name", "refs", "ai_coauthor",
+        }
+        assert required.issubset(set(row.keys()))
+
+    def test_bot_flag(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
+        rows = list(_parse_file(gz))
+        df = pd.DataFrame(rows)
+        bots = df[df["is_bot_actor"]]
+        assert set(bots["actor_login"]) == {"dependabot[bot]", "github-actions[bot]"}
+
+    def test_max_events_cap(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
+        rows = list(_parse_file(gz, max_events=2))
+        assert len(rows) == 2
+
+    def test_bad_json_skipped(self, tmp_path):
+        gz_path = tmp_path / "bad.json.gz"
+        with gzip.open(gz_path, "wt") as f:
+            f.write(json.dumps(SAMPLE_EVENTS[0]) + "\n")
+            f.write("NOT JSON\n")
+            f.write(json.dumps(SAMPLE_EVENTS[1]) + "\n")
+        rows = list(_parse_file(gz_path))
+        assert len(rows) == 2
+
+    def test_phish_flag_on_suspicious_repo(self, tmp_path):
+        ev = dict(SAMPLE_EVENTS[0])
+        ev["repo"] = {"name": "owner/roblox-hack", "id": 99}
+        gz = _make_gz([ev], tmp_path / "phish.json.gz")
+        row = list(_parse_file(gz))[0]
+        assert row["phish_name"] is True
+
+    def test_refs_extracted_from_create_event(self, tmp_path):
+        ev = {
+            "id": "99", "type": "CreateEvent",
+            "actor": {"login": "alice", "id": 1},
+            "repo": {"name": "alice/repo", "id": 10},
+            "created_at": "2026-04-15T12:00:00Z", "public": True,
+            "payload": {"ref": "feature/new-branch"},
+        }
+        gz = _make_gz([ev], tmp_path / "create.json.gz")
+        row = list(_parse_file(gz))[0]
+        assert "feature/new-branch" in row["refs"]
+
+
+# ── compute_repo_stats (Kanak base + Shravani extensions) ─────────────────────
+class TestComputeRepoStats:
+    @pytest.fixture
+    def sample_df(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
+        rows = list(_parse_file(gz))
+        df = pd.DataFrame(rows)
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
+        return df
+
+    def test_returns_dataframe(self, sample_df):
+        assert isinstance(compute_repo_stats(sample_df), pd.DataFrame)
+
+    def test_repo_count(self, sample_df):
+        stats = compute_repo_stats(sample_df)
+        assert len(stats) == 2  # alice/my-app, bob/infra
+
+    def test_bot_ratio_range(self, sample_df):
+        stats = compute_repo_stats(sample_df)
+        assert stats["bot_ratio"].between(0, 1).all()
+
+    def test_alice_repo_bot_ratio(self, sample_df):
+        stats = compute_repo_stats(sample_df)
+        row = stats[stats["repo_name"] == "alice/my-app"].iloc[0]
+        assert row["bot_ratio"] == pytest.approx(0.5)
+
+    def test_suspicious_score_non_negative(self, sample_df):
+        assert (compute_repo_stats(sample_df)["suspicious_score"] >= 0).all()
+
+    # Shravani column tests
+    def test_phish_name_flag_column_exists(self, sample_df):
+        assert "phish_name_flag" in compute_repo_stats(sample_df).columns
+
+    def test_ai_coauthor_flag_column_exists(self, sample_df):
+        assert "ai_coauthor_flag" in compute_repo_stats(sample_df).columns
+
+    def test_distinct_branches_column_exists(self, sample_df):
+        assert "distinct_branches" in compute_repo_stats(sample_df).columns
+
+    def test_distinct_branches_non_negative(self, sample_df):
+        stats = compute_repo_stats(sample_df)
+        assert (stats["distinct_branches"] >= 0).all()
+
+
+# ── compute_actor_stats (Shravani) ────────────────────────────────────────────
+class TestComputeActorStats:
+    @pytest.fixture
+    def sample_df(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
+        rows = list(_parse_file(gz))
+        df = pd.DataFrame(rows)
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
+        return df
+
+    def test_returns_dataframe(self, sample_df):
+        assert isinstance(compute_actor_stats(sample_df), pd.DataFrame)
+
+    def test_has_required_columns(self, sample_df):
+        df = compute_actor_stats(sample_df)
+        required = {
+            "actor_login", "total_events", "unique_repos",
+            "event_entropy", "burst_fraction", "suspicious_human_score",
+            "is_bot_actor",
+        }
+        assert required.issubset(df.columns)
+
+    def test_score_non_negative(self, sample_df):
+        df = compute_actor_stats(sample_df)
+        assert (df["suspicious_human_score"] >= 0).all()
+
+    def test_score_zero_for_known_bots(self, sample_df):
+        df = compute_actor_stats(sample_df)
+        bot_rows = df[df["is_bot_actor"]]
+        # Known bots bypass the human scoring loop — score should be 0
+        assert (bot_rows["suspicious_human_score"] == 0).all()
+
+    def test_covers_all_actors(self, sample_df):
+        df = compute_actor_stats(sample_df)
+        expected_actors = set(sample_df["actor_login"].dropna().unique())
+        assert expected_actors == set(df["actor_login"])
+
+
+# ── detect_lockstep (Shravani) ────────────────────────────────────────────────
+class TestDetectLockstep:
+    @pytest.fixture
+    def sample_df(self, tmp_path):
+        gz = _make_gz(SAMPLE_EVENTS, tmp_path / "test.json.gz")
+        rows = list(_parse_file(gz))
+        df = pd.DataFrame(rows)
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
+        return df
+
+    def test_returns_dataframe(self, sample_df):
+        assert isinstance(detect_lockstep(sample_df), pd.DataFrame)
+
+    def test_min_accounts_filter(self, sample_df):
+        # With min_accounts=10, no windows should be flagged on our tiny sample
+        result = detect_lockstep(sample_df, min_accounts=10)
+        assert result.empty
+
+    def test_low_threshold_returns_rows(self, sample_df):
+        result = detect_lockstep(sample_df, min_accounts=2, window_minutes=60)
+        # bob/infra has 2 actors in the same hour window
+        assert not result.empty
+
+    def test_output_columns(self, sample_df):
+        result = detect_lockstep(sample_df, min_accounts=2, window_minutes=60)
+        if not result.empty:
+            assert {"repo_name", "window_start", "actor_count",
+                    "event_count", "actors", "event_types"}.issubset(result.columns)
+
+    def test_actor_count_at_least_min(self, sample_df):
+        min_n = 2
+        result = detect_lockstep(sample_df, min_accounts=min_n, window_minutes=60)
+        if not result.empty:
+            assert (result["actor_count"] >= min_n).all()
