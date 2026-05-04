@@ -1,9 +1,0 @@
-venv/
-*/venv/
-__pycache__/
-.DS_Store
-.envvenv/
-*/venv/
-__pycache__/
-.DS_Store
-.env
