@@ -1,33 +1,5 @@
 """
 analytics.py
-------------
-Full analysis pipeline. Every class documents its origin.
-
-Source breakdown
-----------------
-Kept from Kanak (unchanged logic, field names aligned)
-  - BotActorProfiler        – known-bot profiling, burst detection
-  - RepoPurposeAnalyser     – TF-IDF + KMeans description clustering,
-                              language distribution, topic frequency,
-                              name heuristics, bot-heavy repo filtering
-  - BotRepoCorrelation      – cross-tab of bot category × repo purpose
-  - AnomalyDetector         – Z-score outlier detection on repo features
-
-New from Shravani
-  - SuspiciousHumanAnalyser – profiles non-bot accounts that behave like bots
-  - LockstepAnalyser        – examines coordinated multi-account activity
-  - PhishingRepoAnalyser    – name patterns, branch explosion, AI co-authors
-
-ReportExporter
-  - save_csv            : Kanak (empty-df guard added by Shravani)
-  - save_html_report    : Shravani's dark-theme design (Space Mono + Syne,
-                          summary stat bar, NEW badges), but now also
-                          includes Kanak's BotRepoCorrelation section
-  - accepts processed_dir / reports_dir params (Shravani's per-run layout)
-
-run_analytics
-  - Full orchestration of all classes from both contributors
-  - Optional GitHub API enrichment preserved from Kanak
 """
 
 import logging
@@ -62,9 +34,10 @@ PROCESSED_DIR = PATHS.PROCESSED
 REPORTS_DIR   = PATHS.REPORTS
 
 
-# ── bot taxonomy helper ───────────────────────────────────────────────────────
+# ── bot taxonomy helper 
 def classify_bot(login: str) -> str:
-    """Return a functional category for a bot login. Source: Kanak + Shravani."""
+    """Return a functional category for a bot login"""
+  
     lo = login.lower()
     for category, keywords in BOT_TAXONOMY.items():
         if any(kw in lo for kw in keywords):
@@ -72,11 +45,10 @@ def classify_bot(login: str) -> str:
     return "other"
 
 
-# ── 1. BotActorProfiler (Kanak) ───────────────────────────────────────────────
+# ── 1. BotActorProfiler 
 class BotActorProfiler:
     """
     Analyse the behaviour of known-bot actors in the event stream.
-    Source: Kanak. Field name aligned: is_bot_actor.
     """
 
     def __init__(self, events_df: pd.DataFrame):
@@ -107,7 +79,8 @@ class BotActorProfiler:
         return p.sort_values("total_events", ascending=False)
 
     def event_type_breakdown(self) -> pd.DataFrame:
-        """Cross-tab: bot_login × event_type counts. Source: Kanak."""
+        """Cross-tab: bot_login × event_type counts"""
+      
         if self.df.empty:
             return pd.DataFrame()
         return pd.crosstab(self.df["actor_login"], self.df["event_type"])
@@ -128,7 +101,8 @@ class BotActorProfiler:
         window_minutes: int = DEFAULT_PARAMS.BURST_WINDOW_MIN,
         threshold:      int = DEFAULT_PARAMS.BURST_THRESHOLD,
     ) -> pd.DataFrame:
-        """Sliding-window burst detection. Source: Kanak."""
+        """Sliding-window burst detection"""
+      
         if self.df.empty:
             return pd.DataFrame()
         tmp = self.df.set_index("created_at").sort_index()
@@ -144,12 +118,12 @@ class BotActorProfiler:
         return pd.DataFrame(results)
 
 
-# ── 2. SuspiciousHumanAnalyser (Shravani) ─────────────────────────────────────
+# ── 2. SuspiciousHumanAnalyser 
 class SuspiciousHumanAnalyser:
     """
     Profiles non-bot accounts that exhibit bot-like behaviour:
     low entropy, burst activity, single-event-type focus, AI co-authorship.
-    Source: Shravani. Consumes actor_stats_df output from ingest.py.
+    Consumes actor_stats_df output from ingest.py.
     """
 
     def __init__(self, actor_stats_df: pd.DataFrame):
@@ -179,14 +153,13 @@ class SuspiciousHumanAnalyser:
         return self.df[self.df["ai_coauthor"]].sort_values("total_events", ascending=False)
 
 
-# ── 3. RepoPurposeAnalyser (Kanak) ────────────────────────────────────────────
+# ── 3. RepoPurposeAnalyser 
 class RepoPurposeAnalyser:
     """
     Classify / cluster repos by purpose using:
-      - GitHub API metadata (language, topics, description) — Kanak
-      - TF-IDF + KMeans unsupervised clustering              — Kanak
-      - Rule-based heuristics from repo name patterns        — Kanak + Shravani (added 'suspicious' category)
-    Source: Kanak. Shravani added the 'suspicious' name heuristic (crack/free/hack/…).
+      - GitHub API metadata (language, topics, description) 
+      - TF-IDF + KMeans unsupervised clustering              
+      - Rule-based heuristics from repo name patterns        
     """
 
     def __init__(
@@ -227,7 +200,8 @@ class RepoPurposeAnalyser:
         return pd.Series(counter).sort_values(ascending=False)
 
     def cluster_by_description(self) -> pd.DataFrame:
-        """TF-IDF + KMeans clustering of repo descriptions. Source: Kanak."""
+        """TF-IDF + KMeans clustering of repo descriptions"""
+      
         df = self._get_merged().copy()
         if "description" not in df.columns or df["description"].isna().all():
             logger.warning("No description data; skipping clustering.")
@@ -256,7 +230,7 @@ class RepoPurposeAnalyser:
         try:
             X = vec.fit_transform(texts[valid_mask])
         except ValueError:
-            # min_df pruned all terms (corpus too small) — retry with min_df=1
+            # if min_df pruned all terms (corpus too small) handle with min_df=1
             logger.warning(
                 "TF-IDF pruned all terms with min_df=%d; retrying with min_df=1.",
                 DEFAULT_PARAMS.TFIDF_MIN_DF,
@@ -293,10 +267,10 @@ class RepoPurposeAnalyser:
     def name_heuristic_classify(self) -> pd.DataFrame:
         """
         Rule-based classifier from repo name.
-        Source: Kanak. Shravani added the 'suspicious' category
         (crack/free/hack/wallet/stealer/cheat).
         Patterns now read from config.REPO_NAME_CATEGORIES.
         """
+      
         df   = self._get_merged().copy()
         name = df["repo_name"].str.lower()
 
@@ -311,7 +285,8 @@ class RepoPurposeAnalyser:
         events_df: pd.DataFrame,
         bot_ratio_threshold: float = DEFAULT_PARAMS.BOT_HEAVY_THRESHOLD,
     ) -> pd.DataFrame:
-        """Subset repos where >50% of events come from bots. Source: Kanak."""
+        """Subset repos where >50% of events come from bots"""
+      
         df = self._get_merged()
         if "bot_ratio" not in df.columns:
             logger.warning("bot_ratio column missing.")
@@ -322,11 +297,10 @@ class RepoPurposeAnalyser:
         return bot_heavy
 
 
-# ── 4. BotRepoCorrelation (Kanak) ─────────────────────────────────────────────
+# ── 4. BotRepoCorrelation 
 class BotRepoCorrelation:
     """
     Link bot categories to repo purpose clusters.
-    Source: Kanak. Not present in Shravani's version — restored here.
     """
 
     def __init__(self, events_df: pd.DataFrame, repo_purpose_df: pd.DataFrame):
@@ -362,11 +336,10 @@ class BotRepoCorrelation:
         )
 
 
-# ── 5. LockstepAnalyser (Shravani) ────────────────────────────────────────────
+# ── 5. LockstepAnalyser 
 class LockstepAnalyser:
     """
     Examines cross-repo coordinated-activity windows detected in ingest.py.
-    Source: Shravani.
     """
 
     def __init__(self, lockstep_df: pd.DataFrame):
@@ -401,11 +374,10 @@ class LockstepAnalyser:
         ].sort_values("repos_hit", ascending=False)
 
 
-# ── 6. PhishingRepoAnalyser (Shravani) ────────────────────────────────────────
+# ── 6. PhishingRepoAnalyser 
 class PhishingRepoAnalyser:
     """
     Scores repos on name patterns, branch explosion, and AI co-author signals.
-    Source: Shravani.
     """
 
     def __init__(self, repo_stats_df: pd.DataFrame):
@@ -459,7 +431,7 @@ class PhishingRepoAnalyser:
         return pd.DataFrame(rows)
 
 
-# ── 7. AnomalyDetector (Kanak + Shravani) ────────────────────────────────────
+# ── 7. AnomalyDetector 
 class AnomalyDetector:
     """
     Z-score outlier detection on repo-level numeric features.
@@ -469,7 +441,7 @@ class AnomalyDetector:
     FEATURE_COLS = [
         "total_events", "unique_actors", "bot_ratio",
         "events_per_actor", "events_per_second",
-        "distinct_branches",   # Shravani addition
+        "distinct_branches",   
     ]
 
     def __init__(
@@ -497,15 +469,10 @@ class AnomalyDetector:
         return combined[combined["max_z"] > self.z_threshold].sort_values("max_z", ascending=False)
 
 
-# ── 8. ReportExporter ────────────────────────────────────────────────────────
+# ── 8. ReportExporter 
 class ReportExporter:
     """
     Save results to CSV and a self-contained HTML report.
-
-    save_csv        : Kanak's logic + Shravani's empty-df guard.
-    save_html_report: Shravani's dark-theme design (Space Mono + Syne,
-                      summary stat bar, NEW/ANOMALY badges).
-                      Extended with Kanak's BotRepoCorrelation section.
     """
 
     def __init__(self, output_dir: Path = REPORTS_DIR):
@@ -530,10 +497,11 @@ class ReportExporter:
         bot_cat_summary:   pd.DataFrame,
         branch_explosion:  pd.DataFrame,
         ai_coauthor_repos: pd.DataFrame,
-        correlation_xtab:  pd.DataFrame,   # Kanak: BotRepoCorrelation
+        correlation_xtab:  pd.DataFrame,   
         total_repos: int = 0,
     ) -> Path:
-        """Generate self-contained HTML with Shravani's design + Kanak's correlation section."""
+        """Generate self-contained HTML"""
+      
         try:
             import plotly.express as px
             import plotly.io as pio
@@ -687,14 +655,14 @@ h2{{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:700}}
         return path
 
 
-# ── orchestration ─────────────────────────────────────────────────────────────
+# ── orchestration 
 def run_analytics(
     events_prefix:      str  = "events",
-    enrich_with_github: bool = True,          # Kanak feature — preserved
+    enrich_with_github: bool = True,         
     max_enrich_repos:   int  = DEFAULT_PARAMS.MAX_ENRICH_REPOS,
     n_clusters:         int  = DEFAULT_PARAMS.N_CLUSTERS,
-    processed_dir: Optional[Path] = None,    # Shravani: per-run folder support
-    reports_dir:   Optional[Path] = None,    # Shravani: per-run folder support
+    processed_dir: Optional[Path] = None,    
+    reports_dir:   Optional[Path] = None,    
 ) -> None:
     setup_logging()
     processed_dir = Path(processed_dir) if processed_dir is not None else PROCESSED_DIR
@@ -713,7 +681,7 @@ def run_analytics(
     df_actors   = _load(f"{events_prefix}_actor_stats.parquet")
     df_lockstep = _load(f"{events_prefix}_lockstep.parquet")
 
-    # ── Optional GitHub API enrichment (Kanak) ────────────────────────────────
+    # ── Optional GitHub API enrichment 
     enriched_df   = None
     enriched_path = processed_dir / "repo_metadata.parquet"
     if enrich_with_github:
@@ -726,33 +694,33 @@ def run_analytics(
             if enriched_df is not None and not enriched_df.empty:
                 save_parquet(enriched_df, enriched_path)
 
-    # ── 1. Bot profiling (Kanak) ──────────────────────────────────────────────
+    # ── 1. Bot profiling 
     profiler     = BotActorProfiler(df_events)
     bot_profile  = profiler.profile()
     bot_bursts   = profiler.detect_bursts()
     bot_cat_summ = profiler.category_summary()
 
-    # ── 2. Suspicious humans (Shravani) ───────────────────────────────────────
+    # ── 2. Suspicious humans 
     sha         = SuspiciousHumanAnalyser(df_actors)
     susp_humans = sha.top_suspicious()
     ai_accounts = sha.ai_coauthor_accounts()
 
-    # ── 3. Repo purpose analysis (Kanak) ──────────────────────────────────────
+    # ── 3. Repo purpose analysis 
     analyser       = RepoPurposeAnalyser(df_repos, enriched_df=enriched_df, n_clusters=n_clusters)
     df_with_purpose = analyser.cluster_by_description()
     df_with_purpose = analyser.name_heuristic_classify()
     bot_heavy_repos = analyser.bot_heavy_repo_purposes(df_events)
 
-    # ── 4. Bot↔Repo correlation (Kanak) ───────────────────────────────────────
+    # ── 4. Bot↔Repo correlation 
     correlator       = BotRepoCorrelation(df_events, df_with_purpose)
     xtab             = correlator.bot_category_x_purpose()
     top_repos_per_bot = correlator.top_repos_per_bot()
 
-    # ── 5. Lockstep analysis (Shravani) ───────────────────────────────────────
+    # ── 5. Lockstep analysis 
     lsa           = LockstepAnalyser(df_lockstep)
     lockstep_repos = lsa.top_targeted_repos()
 
-    # ── 6. Phishing repo analysis (Shravani) ──────────────────────────────────
+    # ── 6. Phishing repo analysis 
     pra          = PhishingRepoAnalyser(df_repos)
     high_risk    = pra.high_risk_repos()
     phish_names  = pra.phish_name_repos()
@@ -760,13 +728,12 @@ def run_analytics(
     ai_repo      = pra.ai_coauthor_repos()
     risk_brkdwn  = pra.risk_breakdown()
 
-    # ── 7. Anomaly detection (Kanak + Shravani) ───────────────────────────────
+    # ── 7. Anomaly detection 
     anomalies = AnomalyDetector(df_repos).zscore_anomalies()
 
-    # ── 8. Export ─────────────────────────────────────────────────────────────
+    # ── 8. Export 
     exporter = ReportExporter(output_dir=reports_dir)
 
-    # Kanak CSVs
     exporter.save_csv(bot_profile,        "bot_profiles")
     exporter.save_csv(bot_cat_summ,       "bot_category_summary")
     exporter.save_csv(bot_heavy_repos,    "bot_heavy_repos")
@@ -776,7 +743,6 @@ def run_analytics(
     if bot_bursts is not None and not bot_bursts.empty:
         exporter.save_csv(bot_bursts,     "bot_bursts")
 
-    # Shravani CSVs
     exporter.save_csv(susp_humans,   "suspicious_humans")
     exporter.save_csv(ai_accounts,   "ai_coauthor_accounts")
     exporter.save_csv(lockstep_repos,"lockstep_repos")
@@ -796,14 +762,14 @@ def run_analytics(
         bot_cat_summary   = bot_cat_summ,
         branch_explosion  = branch_exp,
         ai_coauthor_repos = ai_repo,
-        correlation_xtab  = xtab,           # Kanak
+        correlation_xtab  = xtab,          
         total_repos       = len(df_repos),
     )
 
     logger.info("Analytics complete → %s", reports_dir)
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# ── CLI 
 if __name__ == "__main__":
     import argparse
 
