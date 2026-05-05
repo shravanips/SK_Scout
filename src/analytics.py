@@ -1,5 +1,33 @@
 """
 analytics.py
+------------
+Full analysis pipeline. Every class documents its origin.
+
+Source breakdown
+----------------
+Kept from Kanak (unchanged logic, field names aligned)
+  - BotActorProfiler        - known-bot profiling, burst detection
+  - RepoPurposeAnalyser     - TF-IDF + KMeans description clustering,
+                              language distribution, topic frequency,
+                              name heuristics, bot-heavy repo filtering
+  - BotRepoCorrelation      - cross-tab of bot category x repo purpose
+  - AnomalyDetector         - Z-score outlier detection on repo features
+
+New from Shravani
+  - SuspiciousHumanAnalyser - profiles non-bot accounts that behave like bots
+  - LockstepAnalyser        - examines coordinated multi-account activity
+  - PhishingRepoAnalyser    - name patterns, branch explosion, AI co-authors
+
+ReportExporter
+  - save_csv            : Kanak (empty-df guard added by Shravani)
+  - save_html_report    : Shravani's dark-theme design (Space Mono + Syne,
+                          summary stat bar, NEW badges), but now also
+                          includes Kanak's BotRepoCorrelation section
+  - accepts processed_dir / reports_dir params (Shravani's per-run layout)
+
+run_analytics
+  - Full orchestration of all classes from both contributors
+  - Optional GitHub API enrichment preserved from Kanak
 """
 
 import logging
@@ -34,10 +62,9 @@ PROCESSED_DIR = PATHS.PROCESSED
 REPORTS_DIR   = PATHS.REPORTS
 
 
-# ── bot taxonomy helper 
+# -- bot taxonomy helper -------------------------------------------------------
 def classify_bot(login: str) -> str:
-    """Return a functional category for a bot login"""
-  
+    """Return a functional category for a bot login. Source: Kanak + Shravani."""
     lo = login.lower()
     for category, keywords in BOT_TAXONOMY.items():
         if any(kw in lo for kw in keywords):
@@ -45,10 +72,11 @@ def classify_bot(login: str) -> str:
     return "other"
 
 
-# ── 1. BotActorProfiler 
+# -- 1. BotActorProfiler (Kanak) -----------------------------------------------
 class BotActorProfiler:
     """
     Analyse the behaviour of known-bot actors in the event stream.
+    Source: Kanak. Field name aligned: is_bot_actor.
     """
 
     def __init__(self, events_df: pd.DataFrame):
@@ -79,8 +107,7 @@ class BotActorProfiler:
         return p.sort_values("total_events", ascending=False)
 
     def event_type_breakdown(self) -> pd.DataFrame:
-        """Cross-tab: bot_login × event_type counts"""
-      
+        """Cross-tab: bot_login x event_type counts. Source: Kanak."""
         if self.df.empty:
             return pd.DataFrame()
         return pd.crosstab(self.df["actor_login"], self.df["event_type"])
@@ -101,8 +128,7 @@ class BotActorProfiler:
         window_minutes: int = DEFAULT_PARAMS.BURST_WINDOW_MIN,
         threshold:      int = DEFAULT_PARAMS.BURST_THRESHOLD,
     ) -> pd.DataFrame:
-        """Sliding-window burst detection"""
-      
+        """Sliding-window burst detection. Source: Kanak."""
         if self.df.empty:
             return pd.DataFrame()
         tmp = self.df.set_index("created_at").sort_index()
@@ -118,12 +144,12 @@ class BotActorProfiler:
         return pd.DataFrame(results)
 
 
-# ── 2. SuspiciousHumanAnalyser 
+# -- 2. SuspiciousHumanAnalyser (Shravani) -------------------------------------
 class SuspiciousHumanAnalyser:
     """
     Profiles non-bot accounts that exhibit bot-like behaviour:
     low entropy, burst activity, single-event-type focus, AI co-authorship.
-    Consumes actor_stats_df output from ingest.py.
+    Source: Shravani. Consumes actor_stats_df output from ingest.py.
     """
 
     def __init__(self, actor_stats_df: pd.DataFrame):
@@ -153,13 +179,14 @@ class SuspiciousHumanAnalyser:
         return self.df[self.df["ai_coauthor"]].sort_values("total_events", ascending=False)
 
 
-# ── 3. RepoPurposeAnalyser 
+# -- 3. RepoPurposeAnalyser (Kanak) --------------------------------------------
 class RepoPurposeAnalyser:
     """
     Classify / cluster repos by purpose using:
-      - GitHub API metadata (language, topics, description) 
-      - TF-IDF + KMeans unsupervised clustering              
-      - Rule-based heuristics from repo name patterns        
+      - GitHub API metadata (language, topics, description) -- Kanak
+      - TF-IDF + KMeans unsupervised clustering              -- Kanak
+      - Rule-based heuristics from repo name patterns        -- Kanak + Shravani (added 'suspicious' category)
+    Source: Kanak. Shravani added the 'suspicious' name heuristic (crack/free/hack/...).
     """
 
     def __init__(
@@ -200,8 +227,7 @@ class RepoPurposeAnalyser:
         return pd.Series(counter).sort_values(ascending=False)
 
     def cluster_by_description(self) -> pd.DataFrame:
-        """TF-IDF + KMeans clustering of repo descriptions"""
-      
+        """TF-IDF + KMeans clustering of repo descriptions. Source: Kanak."""
         df = self._get_merged().copy()
         if "description" not in df.columns or df["description"].isna().all():
             logger.warning("No description data; skipping clustering.")
@@ -230,7 +256,7 @@ class RepoPurposeAnalyser:
         try:
             X = vec.fit_transform(texts[valid_mask])
         except ValueError:
-            # if min_df pruned all terms (corpus too small) handle with min_df=1
+            # min_df pruned all terms (corpus too small) -- retry with min_df=1
             logger.warning(
                 "TF-IDF pruned all terms with min_df=%d; retrying with min_df=1.",
                 DEFAULT_PARAMS.TFIDF_MIN_DF,
@@ -267,10 +293,10 @@ class RepoPurposeAnalyser:
     def name_heuristic_classify(self) -> pd.DataFrame:
         """
         Rule-based classifier from repo name.
+        Source: Kanak. Shravani added the 'suspicious' category
         (crack/free/hack/wallet/stealer/cheat).
         Patterns now read from config.REPO_NAME_CATEGORIES.
         """
-      
         df   = self._get_merged().copy()
         name = df["repo_name"].str.lower()
 
@@ -285,8 +311,7 @@ class RepoPurposeAnalyser:
         events_df: pd.DataFrame,
         bot_ratio_threshold: float = DEFAULT_PARAMS.BOT_HEAVY_THRESHOLD,
     ) -> pd.DataFrame:
-        """Subset repos where >50% of events come from bots"""
-      
+        """Subset repos where >50% of events come from bots. Source: Kanak."""
         df = self._get_merged()
         if "bot_ratio" not in df.columns:
             logger.warning("bot_ratio column missing.")
@@ -297,10 +322,11 @@ class RepoPurposeAnalyser:
         return bot_heavy
 
 
-# ── 4. BotRepoCorrelation 
+# -- 4. BotRepoCorrelation (Kanak) ---------------------------------------------
 class BotRepoCorrelation:
     """
     Link bot categories to repo purpose clusters.
+    Source: Kanak. Not present in Shravani's version -- restored here.
     """
 
     def __init__(self, events_df: pd.DataFrame, repo_purpose_df: pd.DataFrame):
@@ -336,10 +362,11 @@ class BotRepoCorrelation:
         )
 
 
-# ── 5. LockstepAnalyser 
+# -- 5. LockstepAnalyser (Shravani) --------------------------------------------
 class LockstepAnalyser:
     """
     Examines cross-repo coordinated-activity windows detected in ingest.py.
+    Source: Shravani.
     """
 
     def __init__(self, lockstep_df: pd.DataFrame):
@@ -374,10 +401,11 @@ class LockstepAnalyser:
         ].sort_values("repos_hit", ascending=False)
 
 
-# ── 6. PhishingRepoAnalyser 
+# -- 6. PhishingRepoAnalyser (Shravani) ----------------------------------------
 class PhishingRepoAnalyser:
     """
     Scores repos on name patterns, branch explosion, and AI co-author signals.
+    Source: Shravani.
     """
 
     def __init__(self, repo_stats_df: pd.DataFrame):
@@ -431,7 +459,7 @@ class PhishingRepoAnalyser:
         return pd.DataFrame(rows)
 
 
-# ── 7. AnomalyDetector 
+# -- 7. AnomalyDetector (Kanak + Shravani) ------------------------------------
 class AnomalyDetector:
     """
     Z-score outlier detection on repo-level numeric features.
@@ -441,7 +469,7 @@ class AnomalyDetector:
     FEATURE_COLS = [
         "total_events", "unique_actors", "bot_ratio",
         "events_per_actor", "events_per_second",
-        "distinct_branches",   
+        "distinct_branches",   # Shravani addition
     ]
 
     def __init__(
@@ -469,10 +497,67 @@ class AnomalyDetector:
         return combined[combined["max_z"] > self.z_threshold].sort_values("max_z", ascending=False)
 
 
-# ── 8. ReportExporter 
+# -- report helper functions (module-level, no f-string interference) ---------
+
+def _filter_cols(df: "pd.DataFrame", wanted: list) -> "pd.DataFrame":
+    """Return df keeping only wanted columns that actually exist."""
+    cols = [c for c in wanted if c in df.columns]
+    return df[cols] if cols else df
+
+
+def _df_to_html(df: "pd.DataFrame", n: int = 30, wanted_cols: list = None) -> str:
+    """Render a DataFrame as a clean HTML table, safe for embedding in f-strings."""
+    if df is None or df.empty:
+        return "<p class='empty'>No data for this window.</p>"
+    if wanted_cols:
+        df = _filter_cols(df, wanted_cols)
+    df = df.head(n).copy()
+    for col in df.select_dtypes(include="float").columns:
+        df[col] = df[col].round(3)
+    bool_map = {True: "Yes", False: "No"}
+    for col in df.select_dtypes(include="bool").columns:
+        df[col] = df[col].map(bool_map)
+    return df.to_html(index=False, border=0, classes="tbl", na_rep="-", escape=True)
+
+
+def _bar_chart_html(df: "pd.DataFrame", x: str, y: str, title: str) -> str:
+    """Render a Plotly bar chart as an HTML snippet, or empty string if unavailable."""
+    try:
+        import plotly.express as px
+        import plotly.io as pio
+    except ImportError:
+        return ""
+    if df is None or df.empty:
+        return ""
+    if x not in df.columns or y not in df.columns:
+        return ""
+    fig = px.bar(
+        df.head(20), x=x, y=y, title=title,
+        color_discrete_sequence=["#e94560", "#533483", "#0f3460"],
+    )
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#e2e8f0",
+        font_family="Space Mono",
+        title_font_size=13,
+        margin=dict(l=8, r=8, t=36, b=8),
+        xaxis=dict(gridcolor="#1e2d45", tickfont=dict(size=10)),
+        yaxis=dict(gridcolor="#1e2d45", tickfont=dict(size=10)),
+    )
+    cfg = {"displayModeBar": False}
+    return pio.to_html(fig, full_html=False, config=cfg)
+
+
+# -- 8. ReportExporter --------------------------------------------------------
 class ReportExporter:
     """
     Save results to CSV and a self-contained HTML report.
+
+    save_csv        : Kanak's logic + Shravani's empty-df guard.
+    save_html_report: Shravani's dark-theme design (Space Mono + Syne,
+                      summary stat bar, NEW/ANOMALY badges).
+                      Extended with Kanak's BotRepoCorrelation section.
     """
 
     def __init__(self, output_dir: Path = REPORTS_DIR):
@@ -483,7 +568,7 @@ class ReportExporter:
             return None
         path = self.out / f"{name}.csv"
         df.to_csv(path, index=False)
-        logger.info("CSV → %s", path)
+        logger.info("CSV -> %s", path)
         return path
 
     def save_html_report(
@@ -497,37 +582,27 @@ class ReportExporter:
         bot_cat_summary:   pd.DataFrame,
         branch_explosion:  pd.DataFrame,
         ai_coauthor_repos: pd.DataFrame,
-        correlation_xtab:  pd.DataFrame,   
+        correlation_xtab:  pd.DataFrame,   # Kanak: BotRepoCorrelation
         total_repos: int = 0,
     ) -> Path:
-        """Generate self-contained HTML"""
-      
-        try:
-            import plotly.express as px
-            import plotly.io as pio
-            has_plotly = True
-        except ImportError:
-            has_plotly = False
-
-        def df_html(df, n=25):
-            if df is None or df.empty:
-                return "<p><em>No data.</em></p>"
-            return df.head(n).to_html(index=False, border=0, classes="tbl")
-
-        def bar_chart(df, x, y, title):
-            if not has_plotly or df is None or df.empty:
-                return ""
-            if x not in df.columns or y not in df.columns:
-                return ""
-            fig = px.bar(
-                df.head(20), x=x, y=y, title=title,
-                color_discrete_sequence=["#e94560", "#0f3460", "#533483"],
-            )
-            fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font_color="#e2e8f0", title_font_size=14,
-            )
-            return pio.to_html(fig, full_html=False)
+        """Generate self-contained HTML with Shravani's design + Kanak's correlation section."""
+        # column display config -- which cols to show per section
+        REPO_COLS    = ["repo_name", "total_events", "unique_actors", "bot_events",
+                        "bot_ratio", "phish_name_flag", "ai_coauthor_flag",
+                        "distinct_branches", "suspicious_score"]
+        HUMAN_COLS   = ["actor_login", "total_events", "unique_repos",
+                        "event_entropy", "burst_fraction", "suspicious_human_score"]
+        LOCK_COLS    = ["repo_name", "window_start", "actor_count",
+                        "event_count", "event_types"]
+        BRANCH_COLS  = ["repo_name", "total_events", "unique_actors", "bot_ratio",
+                        "distinct_branches", "suspicious_score"]
+        ANOM_COLS    = ["repo_name", "total_events", "bot_ratio",
+                        "events_per_actor", "distinct_branches", "max_z", "anomaly_feature"]
+        BOT_CAT_COLS = ["bot_category", "n_bots", "total_events",
+                        "median_repos", "wide_footprint_pct"]
+        RISK_COLS    = ["signal", "repo_count"]
+        AI_COLS      = ["repo_name", "total_events", "bot_ratio",
+                        "ai_coauthor_flag", "suspicious_score"]
 
         n_phish       = len(phish_repos)       if phish_repos is not None       and not phish_repos.empty       else 0
         n_susp_humans = len(suspicious_humans) if suspicious_humans is not None and not suspicious_humans.empty else 0
@@ -540,109 +615,331 @@ class ReportExporter:
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GitGub – GitHub Anomaly & Bot Detection Report</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitGub - GitHub Anomaly &amp; Bot Detection Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
-:root{{
-  --bg:#0a0e1a; --surface:#111827; --border:#1e2d45;
-  --accent:#e94560; --accent2:#0f3460; --accent3:#533483;
-  --text:#e2e8f0; --muted:#94a3b8; --green:#10b981; --yellow:#f59e0b;
+/* ── reset ───────────────────────────────────────────────── */
+*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+/* ── tokens ──────────────────────────────────────────────── */
+:root {{
+  --bg:       #0a0e1a;
+  --surface:  #111827;
+  --surface2: #0f1a2e;
+  --border:   #1e2d45;
+  --accent:   #e94560;
+  --blue:     #0f3460;
+  --purple:   #533483;
+  --text:     #e2e8f0;
+  --muted:    #94a3b8;
+  --green:    #10b981;
+  --yellow:   #f59e0b;
+  --radius:   10px;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+  --font-sans: 'Syne', system-ui, sans-serif;
 }}
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:var(--bg);color:var(--text);font-family:'Space Mono',monospace;min-height:100vh}}
-header{{background:linear-gradient(135deg,#0f3460 0%,#533483 50%,#e94560 100%);padding:48px 40px 32px}}
-h1{{font-family:'Syne',sans-serif;font-size:2.4rem;font-weight:800;letter-spacing:-1px}}
-h1 span{{color:#fbbf24}}
-.subtitle{{color:rgba(255,255,255,.7);margin-top:8px;font-size:.85rem}}
-.stat-bar{{display:flex;gap:16px;margin-top:24px;flex-wrap:wrap}}
-.stat{{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:14px 20px;min-width:140px}}
-.stat .val{{font-size:1.8rem;font-weight:700;font-family:'Syne',sans-serif;color:#fbbf24}}
-.stat .lbl{{font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px}}
-main{{max-width:1300px;margin:0 auto;padding:32px 24px}}
-section{{margin-bottom:40px}}
-.section-header{{display:flex;align-items:center;gap:12px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px}}
-.badge{{background:var(--accent);color:#fff;font-size:.65rem;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:1px}}
-.badge.new{{background:var(--green)}}
-.badge.warn{{background:var(--yellow);color:#000}}
-.badge.kanak{{background:var(--accent2)}}
-h2{{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:700}}
-.tbl{{width:100%;border-collapse:collapse;font-size:.78rem}}
-.tbl th{{background:var(--accent2);color:#fff;padding:8px 12px;text-align:left;font-weight:700}}
-.tbl td{{padding:7px 12px;border-bottom:1px solid var(--border);color:var(--muted)}}
-.tbl tr:hover td{{background:rgba(255,255,255,.03);color:var(--text)}}
-.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:24px}}
-.card{{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}}
-@media(max-width:768px){{.grid2{{grid-template-columns:1fr}}}}
+
+/* ── base ────────────────────────────────────────────────── */
+body {{
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 100vh;
+}}
+
+/* ── header ──────────────────────────────────────────────── */
+header {{
+  background: linear-gradient(135deg, #0f3460 0%, #533483 55%, #e94560 100%);
+  padding: 44px 40px 32px;
+}}
+h1 {{
+  font-family: var(--font-sans);
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: #fff;
+}}
+h1 span {{ color: #fbbf24; }}
+.subtitle {{
+  color: rgba(255,255,255,0.65);
+  font-size: 0.82rem;
+  margin-top: 6px;
+}}
+
+/* ── stat bar ────────────────────────────────────────────── */
+.stat-bar {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}}
+.stat {{
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  padding: 12px 20px;
+  min-width: 130px;
+  flex: 1 1 130px;
+}}
+.stat .val {{
+  font-family: var(--font-sans);
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #fbbf24;
+  line-height: 1;
+}}
+.stat .lbl {{
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.55);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}}
+
+/* ── main layout ─────────────────────────────────────────── */
+main {{
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 36px 28px 60px;
+}}
+section {{
+  margin-bottom: 48px;
+}}
+
+/* ── section header ──────────────────────────────────────── */
+.section-header {{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}}
+h2 {{
+  font-family: var(--font-sans);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}}
+
+/* ── badges ──────────────────────────────────────────────── */
+.badge {{
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: var(--accent);
+  color: #fff;
+  flex-shrink: 0;
+}}
+.badge.new   {{ background: var(--green); }}
+.badge.warn  {{ background: var(--yellow); color: #000; }}
+.badge.kanak {{ background: var(--blue); }}
+.badge.stats {{ background: var(--purple); }}
+
+/* ── card ────────────────────────────────────────────────── */
+.card {{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0;
+  overflow: hidden;
+}}
+.card-padded {{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  overflow: hidden;
+}}
+
+/* ── grid ────────────────────────────────────────────────── */
+.grid2 {{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}}
+@media (max-width: 900px) {{
+  .grid2 {{ grid-template-columns: 1fr; }}
+}}
+
+/* ── table wrapper — horizontal scroll only ──────────────── */
+.tbl-wrap {{
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}}
+
+/* ── table ───────────────────────────────────────────────── */
+.tbl {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  white-space: nowrap;          /* keep all cells on one line */
+  table-layout: auto;           /* let browser size cols to content */
+}}
+.tbl thead tr {{
+  background: var(--blue);
+}}
+.tbl th {{
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.7rem;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  position: sticky;
+  top: 0;
+}}
+.tbl th:last-child {{ border-right: none; }}
+
+.tbl tbody tr:nth-child(even) {{
+  background: var(--surface2);
+}}
+.tbl tbody tr:hover td {{
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+}}
+.tbl td {{
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid rgba(255,255,255,0.03);
+  color: var(--muted);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}}
+.tbl td:first-child {{
+  color: var(--text);
+  font-weight: 700;
+  max-width: 280px;
+}}
+.tbl td:last-child {{ border-right: none; }}
+
+/* ── empty state ─────────────────────────────────────────── */
+p.empty {{
+  padding: 24px 20px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}}
 </style>
 </head>
 <body>
+
 <header>
-  <h1>🔍 Git<span>Gub</span></h1>
+  <h1>Git<span>Gub</span></h1>
   <p class="subtitle">GitHub Anomaly &amp; Bot Detection Report</p>
   <div class="stat-bar">
     <div class="stat"><div class="val">{total_repos:,}</div><div class="lbl">Total Repos</div></div>
-    <div class="stat"><div class="val">{n_phish:,}</div><div class="lbl">High-Risk Repos ({pct_risk:.1f}%)</div></div>
+    <div class="stat"><div class="val">{n_phish:,}</div><div class="lbl">High-Risk ({pct_risk:.1f}%)</div></div>
     <div class="stat"><div class="val">{n_susp_humans:,}</div><div class="lbl">Suspicious Humans</div></div>
     <div class="stat"><div class="val">{n_lockstep:,}</div><div class="lbl">Lockstep Targets</div></div>
     <div class="stat"><div class="val">{n_bots:,}</div><div class="lbl">Known Bots</div></div>
     <div class="stat"><div class="val">{n_anomalies:,}</div><div class="lbl">Z-Score Anomalies</div></div>
   </div>
 </header>
+
 <main>
 
+<!-- Risk Signal Breakdown -->
 <section>
-  <div class="section-header"><span class="badge new">NEW</span><h2>Risk Signal Breakdown</h2></div>
+  <div class="section-header">
+    <span class="badge new">NEW</span>
+    <h2>Risk Signal Breakdown</h2>
+  </div>
   <div class="grid2">
-    <div class="card">{df_html(risk_breakdown)}</div>
-    <div class="card">{bar_chart(risk_breakdown, "signal", "repo_count", "Repos Flagged per Signal")}</div>
+    <div class="card"><div class="tbl-wrap">{_df_to_html(risk_breakdown, wanted_cols=RISK_COLS)}</div></div>
+    <div class="card-padded">{_bar_chart_html(risk_breakdown, "signal", "repo_count", "Repos Flagged per Signal")}</div>
   </div>
 </section>
 
+<!-- High-Risk / Phishing Repos -->
 <section>
-  <div class="section-header"><span class="badge new">NEW</span><h2>High-Risk / Phishing Repos</h2></div>
-  <div class="card">{df_html(phish_repos)}</div>
+  <div class="section-header">
+    <span class="badge new">NEW</span>
+    <h2>High-Risk / Phishing Repos</h2>
+  </div>
+  <div class="card"><div class="tbl-wrap">{_df_to_html(phish_repos, wanted_cols=REPO_COLS)}</div></div>
 </section>
 
+<!-- Suspicious Human Accounts -->
 <section>
-  <div class="section-header"><span class="badge new">NEW</span><h2>Suspicious Human Accounts (No [bot] tag)</h2></div>
+  <div class="section-header">
+    <span class="badge new">NEW</span>
+    <h2>Suspicious Human Accounts (no [bot] tag)</h2>
+  </div>
   <div class="grid2">
-    <div class="card">{df_html(suspicious_humans)}</div>
-    <div class="card">{bar_chart(suspicious_humans.head(15) if suspicious_humans is not None and not suspicious_humans.empty else pd.DataFrame(), "actor_login", "suspicious_human_score", "Top Suspicious Accounts")}</div>
+    <div class="card"><div class="tbl-wrap">{_df_to_html(suspicious_humans, wanted_cols=HUMAN_COLS)}</div></div>
+    <div class="card-padded">{_bar_chart_html(suspicious_humans.head(15) if suspicious_humans is not None and not suspicious_humans.empty else pd.DataFrame(), "actor_login", "suspicious_human_score", "Top Suspicious Accounts by Score")}</div>
   </div>
 </section>
 
+<!-- Lockstep -->
 <section>
-  <div class="section-header"><span class="badge new">NEW</span><h2>Lockstep-Targeted Repos (Coordinated Activity)</h2></div>
-  <div class="card">{df_html(lockstep_repos)}</div>
+  <div class="section-header">
+    <span class="badge new">NEW</span>
+    <h2>Lockstep-Targeted Repos (Coordinated Activity)</h2>
+  </div>
+  <div class="card"><div class="tbl-wrap">{_df_to_html(lockstep_repos, wanted_cols=LOCK_COLS)}</div></div>
 </section>
 
+<!-- Branch Explosion -->
 <section>
-  <div class="section-header"><span class="badge warn">ANOMALY</span><h2>Branch Explosion Repos</h2></div>
-  <div class="card">{df_html(branch_explosion)}</div>
+  <div class="section-header">
+    <span class="badge warn">ANOMALY</span>
+    <h2>Branch Explosion Repos</h2>
+  </div>
+  <div class="card"><div class="tbl-wrap">{_df_to_html(branch_explosion, wanted_cols=BRANCH_COLS)}</div></div>
 </section>
 
+<!-- AI Co-Author -->
 <section>
-  <div class="section-header"><span class="badge warn">ANOMALY</span><h2>Repos with AI Handle in Commit Co-Authors</h2></div>
-  <div class="card">{df_html(ai_coauthor_repos)}</div>
+  <div class="section-header">
+    <span class="badge warn">ANOMALY</span>
+    <h2>Repos with AI Handle in Commit Co-Authors</h2>
+  </div>
+  <div class="card"><div class="tbl-wrap">{_df_to_html(ai_coauthor_repos, wanted_cols=AI_COLS)}</div></div>
 </section>
 
+<!-- Known Bots -->
 <section>
-  <div class="section-header"><span class="badge">BOTS</span><h2>Known Bot Profiles</h2></div>
+  <div class="section-header">
+    <span class="badge">BOTS</span>
+    <h2>Known Bot Profiles</h2>
+  </div>
   <div class="grid2">
-    <div class="card">{df_html(bot_cat_summary)}</div>
-    <div class="card">{bar_chart(bot_cat_summary, "bot_category", "total_events", "Events by Bot Category")}</div>
+    <div class="card"><div class="tbl-wrap">{_df_to_html(bot_cat_summary, wanted_cols=BOT_CAT_COLS)}</div></div>
+    <div class="card-padded">{_bar_chart_html(bot_cat_summary, "bot_category", "total_events", "Events by Bot Category")}</div>
   </div>
 </section>
 
+<!-- Bot x Repo Correlation -->
 <section>
-  <div class="section-header"><span class="badge kanak">KANAK</span><h2>Bot Category × Repo Purpose Correlation</h2></div>
-  <div class="card">{df_html(correlation_xtab.reset_index() if correlation_xtab is not None and not correlation_xtab.empty else pd.DataFrame())}</div>
+  <div class="section-header">
+    <span class="badge kanak">KANAK</span>
+    <h2>Bot Category x Repo Purpose Correlation</h2>
+  </div>
+  <div class="card"><div class="tbl-wrap">{_df_to_html(correlation_xtab.reset_index() if correlation_xtab is not None and not correlation_xtab.empty else pd.DataFrame())}</div></div>
 </section>
 
+<!-- Z-Score Anomalies -->
 <section>
-  <div class="section-header"><span class="badge">STATS</span><h2>Statistical Anomalies (Z-Score)</h2></div>
-  <div class="card">{df_html(anomalies)}</div>
+  <div class="section-header">
+    <span class="badge stats">STATS</span>
+    <h2>Statistical Anomalies (Z-Score)</h2>
+  </div>
+  <div class="card"><div class="tbl-wrap">{_df_to_html(anomalies, wanted_cols=ANOM_COLS)}</div></div>
 </section>
 
 </main>
@@ -651,18 +948,18 @@ h2{{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:700}}
 
         path = self.out / "report.html"
         path.write_text(html, encoding="utf-8")
-        logger.info("HTML report → %s", path)
+        logger.info("HTML report -> %s", path)
         return path
 
 
-# ── orchestration 
+# -- orchestration -------------------------------------------------------------
 def run_analytics(
     events_prefix:      str  = "events",
-    enrich_with_github: bool = True,         
+    enrich_with_github: bool = True,          # Kanak feature -- preserved
     max_enrich_repos:   int  = DEFAULT_PARAMS.MAX_ENRICH_REPOS,
     n_clusters:         int  = DEFAULT_PARAMS.N_CLUSTERS,
-    processed_dir: Optional[Path] = None,    
-    reports_dir:   Optional[Path] = None,    
+    processed_dir: Optional[Path] = None,    # Shravani: per-run folder support
+    reports_dir:   Optional[Path] = None,    # Shravani: per-run folder support
 ) -> None:
     setup_logging()
     processed_dir = Path(processed_dir) if processed_dir is not None else PROCESSED_DIR
@@ -681,7 +978,7 @@ def run_analytics(
     df_actors   = _load(f"{events_prefix}_actor_stats.parquet")
     df_lockstep = _load(f"{events_prefix}_lockstep.parquet")
 
-    # ── Optional GitHub API enrichment 
+    # -- Optional GitHub API enrichment (Kanak) --------------------------------
     enriched_df   = None
     enriched_path = processed_dir / "repo_metadata.parquet"
     if enrich_with_github:
@@ -694,33 +991,33 @@ def run_analytics(
             if enriched_df is not None and not enriched_df.empty:
                 save_parquet(enriched_df, enriched_path)
 
-    # ── 1. Bot profiling 
+    # -- 1. Bot profiling (Kanak) ----------------------------------------------
     profiler     = BotActorProfiler(df_events)
     bot_profile  = profiler.profile()
     bot_bursts   = profiler.detect_bursts()
     bot_cat_summ = profiler.category_summary()
 
-    # ── 2. Suspicious humans 
+    # -- 2. Suspicious humans (Shravani) ---------------------------------------
     sha         = SuspiciousHumanAnalyser(df_actors)
     susp_humans = sha.top_suspicious()
     ai_accounts = sha.ai_coauthor_accounts()
 
-    # ── 3. Repo purpose analysis 
+    # -- 3. Repo purpose analysis (Kanak) --------------------------------------
     analyser       = RepoPurposeAnalyser(df_repos, enriched_df=enriched_df, n_clusters=n_clusters)
     df_with_purpose = analyser.cluster_by_description()
     df_with_purpose = analyser.name_heuristic_classify()
     bot_heavy_repos = analyser.bot_heavy_repo_purposes(df_events)
 
-    # ── 4. Bot↔Repo correlation 
+    # -- 4. Bot<->Repo correlation (Kanak) ---------------------------------------
     correlator       = BotRepoCorrelation(df_events, df_with_purpose)
     xtab             = correlator.bot_category_x_purpose()
     top_repos_per_bot = correlator.top_repos_per_bot()
 
-    # ── 5. Lockstep analysis 
+    # -- 5. Lockstep analysis (Shravani) ---------------------------------------
     lsa           = LockstepAnalyser(df_lockstep)
     lockstep_repos = lsa.top_targeted_repos()
 
-    # ── 6. Phishing repo analysis 
+    # -- 6. Phishing repo analysis (Shravani) ----------------------------------
     pra          = PhishingRepoAnalyser(df_repos)
     high_risk    = pra.high_risk_repos()
     phish_names  = pra.phish_name_repos()
@@ -728,12 +1025,13 @@ def run_analytics(
     ai_repo      = pra.ai_coauthor_repos()
     risk_brkdwn  = pra.risk_breakdown()
 
-    # ── 7. Anomaly detection 
+    # -- 7. Anomaly detection (Kanak + Shravani) -------------------------------
     anomalies = AnomalyDetector(df_repos).zscore_anomalies()
 
-    # ── 8. Export 
+    # -- 8. Export -------------------------------------------------------------
     exporter = ReportExporter(output_dir=reports_dir)
 
+    # Kanak CSVs
     exporter.save_csv(bot_profile,        "bot_profiles")
     exporter.save_csv(bot_cat_summ,       "bot_category_summary")
     exporter.save_csv(bot_heavy_repos,    "bot_heavy_repos")
@@ -743,6 +1041,7 @@ def run_analytics(
     if bot_bursts is not None and not bot_bursts.empty:
         exporter.save_csv(bot_bursts,     "bot_bursts")
 
+    # Shravani CSVs
     exporter.save_csv(susp_humans,   "suspicious_humans")
     exporter.save_csv(ai_accounts,   "ai_coauthor_accounts")
     exporter.save_csv(lockstep_repos,"lockstep_repos")
@@ -762,14 +1061,14 @@ def run_analytics(
         bot_cat_summary   = bot_cat_summ,
         branch_explosion  = branch_exp,
         ai_coauthor_repos = ai_repo,
-        correlation_xtab  = xtab,          
+        correlation_xtab  = xtab,           # Kanak
         total_repos       = len(df_repos),
     )
 
-    logger.info("Analytics complete → %s", reports_dir)
+    logger.info("Analytics complete -> %s", reports_dir)
 
 
-# ── CLI 
+# -- CLI -----------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse
 
