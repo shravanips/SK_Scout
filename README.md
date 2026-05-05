@@ -1,21 +1,136 @@
-# GitGub 🔍
+# SK_Scout 🔍  
+**A Multi-Level Suspicious Activity Detection Framework for GitHub Ecosystems**
 
-**GitHub bot-actor & repository anomaly detection pipeline**  
-Built on [GHArchive](https://www.gharchive.org/) — a record of every public GitHub event.
+Built on [GHArchive](https://www.gharchive.org/) — a large-scale public record of GitHub activity.
 
 ---
 
-## What it does
+## 🧠 Overview
 
-| Step | Module | Description |
+SK_Scout is a **behavior-driven analysis system** designed to detect **suspicious, automated, and coordinated activity** in large-scale software ecosystems.
+
+Unlike traditional approaches that rely on **single indicators (e.g., bot labels or star counts)**, SK_Scout integrates:
+
+- Actor-level behavioral signals  
+- Repository-level anomalies  
+- Temporal coordination patterns  
+- Metadata and semantic indicators  
+
+This enables **multi-dimensional detection** of:
+
+- Bot-heavy repositories  
+- Suspicious human-like behavior  
+- Coordinated (lockstep) activity  
+- Potential phishing or malicious repositories  
+
+---
+
+## 🎯 Research Motivation
+
+Modern software ecosystems like GitHub are increasingly influenced by:
+
+- Automated agents (bots)
+- AI-assisted contributions
+- Coordinated manipulation (e.g., fake engagement)
+
+Existing detection approaches are often:
+
+- Narrow (single-signal based)
+- Static (no temporal awareness)
+- Limited to known bot patterns
+
+**SK_Scout addresses this gap** by introducing a **multi-stage analytical pipeline** that captures both **behavioral and structural anomalies at scale**.
+
+---
+
+## ⚙️ System Architecture
+
+       GHArchive (.json.gz)
+                │
+                ▼
+    ┌────────────────────┐
+    │   Ingestion Layer  │
+    │  (Event Parsing)   │
+    └────────────────────┘
+                │
+                ▼
+    ┌────────────────────┐
+    │ Signal Extraction  │
+    │ (Actor + Repo)     │
+    └────────────────────┘
+                │
+                ▼
+    ┌────────────────────┐
+    │ Analytics Engine   │
+    │ (8 Modules)        │
+    └────────────────────┘
+                │
+                ▼
+    ┌────────────────────┐
+    │ Detection Outputs  │
+    │ CSV + HTML Report  │
+    └────────────────────┘
+
+
+---
+
+## 🚀 Key Contributions
+
+- **Multi-level detection framework** combining actor, repository, and temporal signals  
+- **Suspicious human detection** beyond known bot identification  
+- **Lockstep analysis** for coordinated multi-account activity  
+- **Phishing-aware repository scoring** using semantic + structural signals  
+- **Scalable pipeline** capable of processing large GHArchive datasets  
+- **Interactive reporting layer** for exploratory analysis  
+
+---
+
+## 🧩 Pipeline Components
+
+| Stage | Module | Description |
 |------|--------|-------------|
-| **Ingest** | `src/ingest.py` | Downloads GHArchive `.json.gz` files, streams & parses events, flags known bots AND suspicious humans, extracts phishing/branch/AI-coauthor signals, saves 4 Parquet tables |
-| **Analytics** | `src/analytics.py` | 8 analysis classes — bot profiling, suspicious human detection, lockstep analysis, phishing repo scoring, purpose clustering, correlation, anomaly detection, HTML report |
-| **Pipeline** | `run_pipeline.py` | One-command wrapper with per-run isolated output folders |
+| **Ingestion** | `src/ingest.py` | Streams GHArchive events, extracts signals, builds structured datasets |
+| **Analytics** | `src/analytics.py` | Multi-module analysis engine (behavioral, statistical, clustering) |
+| **Pipeline Runner** | `run_pipeline.py` | End-to-end execution with isolated run tracking |
 
 ---
 
-## Folder structure
+## 📊 Detection Signals
+
+### 🔹 Actor-Level Signals
+- Event entropy (behavioral diversity)
+- Burst activity patterns
+- Suspicious human scoring (0–5 scale)
+
+### 🔹 Repository-Level Signals
+- Bot activity ratio
+- Event velocity (events/sec)
+- Branch explosion patterns
+- AI-assisted contributions
+- Phishing keyword detection
+
+### 🔹 Coordination Signals
+- Lockstep activity windows across accounts
+- Temporal clustering of actions
+
+---
+
+## 🧪 Analytical Modules
+
+| Module | Description |
+|--------|------------|
+| `BotActorProfiler` | Categorizes and profiles known bot behaviors |
+| `SuspiciousHumanAnalyser` | Identifies human accounts with bot-like patterns |
+| `RepoPurposeAnalyser` | Clusters repositories using TF-IDF + KMeans |
+| `BotRepoCorrelation` | Links bot categories to repository purposes |
+| `LockstepAnalyser` | Detects coordinated multi-account activity |
+| `PhishingRepoAnalyser` | Flags high-risk repositories using semantic signals |
+| `AnomalyDetector` | Identifies statistical outliers via Z-score analysis |
+| `ReportExporter` | Generates structured CSV + interactive HTML reports |
+
+---
+
+## 📁 Project Structure
 
 ```
 gitgub/
@@ -112,106 +227,72 @@ data/runs/<run_name>/reports/report.html
 
 ---
 
-## Signal inventory
+## 📌 Example Use Cases
 
-### Ingest signals (per event)
+SK_Scout can be used in multiple research and practical scenarios:
 
-| Signal | Source | Description |
-|--------|--------|-------------|
-| `is_bot_actor` | Kanak | Matches 19 known bot login patterns |
-| `phish_name` | Shravani | Repo name contains phishing keyword (crack, stealer, wallet, …) |
-| `refs` | Shravani | Branch/tag ref names from CreateEvent payloads |
-| `ai_coauthor` | Shravani | AI handle (Claude, Copilot, GPT-4, …) in commit co-author |
-
-### Repo-level stats
-
-| Column | Source | Description |
-|--------|--------|-------------|
-| `bot_ratio` | Kanak | Fraction of events from known bots |
-| `events_per_actor` | Kanak | Volume concentration |
-| `events_per_second` | Kanak | Activity velocity |
-| `event_type_diversity` | Kanak | Distinct event types |
-| `phish_name_flag` | Shravani | Any event had a phishing repo name |
-| `ai_coauthor_flag` | Shravani | Any commit co-authored by AI |
-| `distinct_branches` | Shravani | Unique branch refs in CreateEvents |
-| `suspicious_score` | Both | Composite score (Kanak base + Shravani weights) |
-
-### Actor-level stats (Shravani)
-
-| Column | Description |
-|--------|-------------|
-| `event_entropy` | Shannon entropy of event types (low = robotic) |
-| `burst_fraction` | Fraction of inter-event gaps < 60 s |
-| `suspicious_human_score` | 0–5 score for non-bot accounts |
+- **Security analysis** — Identify suspicious or potentially malicious repositories  
+- **Bot ecosystem study** — Analyze large-scale bot behavior across GitHub  
+- **Platform integrity research** — Detect coordinated manipulation patterns  
+- **AI-assisted development tracking** — Study trends in AI co-authored code  
+- **Anomaly detection benchmarking** — Evaluate behavioral anomaly detection techniques  
 
 ---
 
-## Analytics classes
+## 📊 What to Look For in the Report
 
-| Class | Source | Description |
-|-------|--------|-------------|
-| `BotActorProfiler` | Kanak | Known-bot profiling, burst detection, category summary |
-| `SuspiciousHumanAnalyser` | Shravani | Non-bot accounts behaving like bots |
-| `RepoPurposeAnalyser` | Kanak | TF-IDF + KMeans clustering, name heuristics |
-| `BotRepoCorrelation` | Kanak | Cross-tab: bot category × repo purpose |
-| `LockstepAnalyser` | Shravani | Coordinated multi-account activity windows |
-| `PhishingRepoAnalyser` | Shravani | Name patterns, branch explosion, AI co-authors |
-| `AnomalyDetector` | Kanak + Shravani | Z-score outliers (Shravani added `distinct_branches`) |
-| `ReportExporter` | Both | Shravani's dark-theme HTML design + Kanak's correlation section |
+After running the pipeline, the generated report highlights:
 
----
+- Repositories with **high bot activity concentration**  
+- Accounts exhibiting **bot-like human behavior**  
+- **Coordinated activity clusters** (lockstep patterns)  
+- Repositories flagged for **phishing or suspicious naming patterns**  
+- Statistical **outliers across multiple behavioral dimensions**  
 
-## CSV outputs
-
-| File | Source |
-|------|--------|
-| `bot_profiles.csv` | Kanak |
-| `bot_category_summary.csv` | Kanak |
-| `bot_heavy_repos.csv` | Kanak |
-| `bot_repo_correlation.csv` | Kanak |
-| `top_repos_per_bot.csv` | Kanak |
-| `anomalous_repos.csv` | Kanak |
-| `bot_bursts.csv` | Kanak |
-| `suspicious_humans.csv` | Shravani |
-| `ai_coauthor_accounts.csv` | Shravani |
-| `lockstep_repos.csv` | Shravani |
-| `high_risk_repos.csv` | Shravani |
-| `phish_name_repos.csv` | Shravani |
-| `branch_explosion_repos.csv` | Shravani |
-| `ai_coauthor_repos.csv` | Shravani |
-| `risk_breakdown.csv` | Shravani |
+This helps quickly identify high-risk entities without manual inspection.
 
 ---
 
-## Running tests
+## ⚡ Performance Notes
 
-```bash
-make test          # full suite
-make test-cov      # with HTML coverage report
-make test-ingest   # ingest only
-make test-analytics
-make test-utils
-```
+- Designed to scale with large GHArchive datasets  
+- Supports both **lightweight runs (1–4 hours)** and **extended runs (day/week)**  
+- Optional GitHub API enrichment improves context but is not required  
+- Per-run isolation ensures reproducibility and clean experiment tracking  
 
 ---
 
-## Environment variables
+## 🧪 Reproducibility
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GITHUB_TOKEN` | `""` | Personal access token (5 000 req/hr with; 60 without) |
-| `LOG_LEVEL` | `INFO` | Python logging level |
-| `DATA_DIR` | `data/` | Override data directory root |
+Each pipeline run is fully isolated and stored under:
+
+data/runs/<run_name>/
+
+Each run contains:
+
+- Processed datasets  
+- Logs  
+- Structured CSV outputs  
+- Final HTML report  
+- Run metadata (`run_info.json`)  
+
+This enables consistent comparison across different time windows and configurations.
 
 ---
 
-## Suggested next additions
+## 🔍 Design Philosophy
 
-- **NLP on README content** — fetch README via GitHub API and run topic modelling
-- **Time-series Streamlit dashboard** — drill-down bot activity over time
-- **Bot network graph** — bipartite graph (bots ↔ repos) with NetworkX community detection
-- **Diff between runs** — compare two `data/runs/` folders to spot newly-active bots
-- **Alerting** — Slack/email when a repo's suspicious_score crosses a threshold
+SK_Scout follows a **multi-signal detection approach**:
+
+- No single signal determines suspiciousness  
+- Behavioral, structural, and temporal signals are combined  
+- Detection is based on **patterns, not labels**  
+
+This makes the system more robust to:
+
+- Evolving bot strategies  
+- Unknown attack patterns  
+- Human-like automated behavior  
 
 ---
 
